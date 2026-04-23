@@ -1,0 +1,17 @@
+services:
+  ai-status-cybertruck:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-status-cybertruck
+    restart: unless-stopped
+    ports:
+      - "8668:8668"
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      PORT: 8668
+      HOSTNAME: 0.0.0.0
+      DEFAULT_LOGIN_USERNAME: "${DEFAULT_LOGIN_USERNAME:-}"
+      DEFAULT_LOGIN_PASSWORD: "${DEFAULT_LOGIN_PASSWORD:-}"
+
