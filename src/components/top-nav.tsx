@@ -3,14 +3,13 @@
 import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { ActivityIcon, TerminalIcon } from "lucide-react"
+import { TerminalIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 const NAV_ITEMS = [
   { href: "/", label: "控制台", Icon: TerminalIcon },
-  { href: "/status", label: "状态", Icon: ActivityIcon },
 ]
 
 export function TopNav() {
@@ -50,4 +49,3 @@ export function TopNav() {
     </header>
   )
 }
-

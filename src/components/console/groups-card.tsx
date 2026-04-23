@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils"
 export function GroupsCard({
   groups,
   loading,
+  upstreamName,
   filter,
   onFilterChange,
   selectedId,
@@ -28,6 +29,7 @@ export function GroupsCard({
 }: {
   groups: unknown[] | null
   loading: boolean
+  upstreamName: string
   filter: string
   onFilterChange: (v: string) => void
   selectedId: string | null
@@ -96,12 +98,20 @@ export function GroupsCard({
                 const label = pickDisplayName(g)
                 const rate = pickRate(g)
                 const models = pickSupportedModels(g)
+                const rateText = rate ?? "1"
                 const active = id && selectedId === id
                 return (
-                  <button
+                  <div
                     key={id ?? idx}
-                    type="button"
                     onClick={() => onSelect(id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault()
+                        onSelect(id)
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
                     className={cn(
                       "group flex items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-accent/50",
                       active && "bg-accent/60"
@@ -112,11 +122,11 @@ export function GroupsCard({
                         <div className="truncate font-medium">{label}</div>
                         {rate && (
                           <Badge variant="secondary" className="shrink-0 font-mono text-[11px]">
-                            rate {rate}
+                            倍率 {rate}
                           </Badge>
                         )}
                       </div>
-                      <div className="truncate font-mono text-xs text-muted-foreground">{id ?? "—"}</div>
+                      {id && <div className="truncate font-mono text-xs text-muted-foreground">{id}</div>}
                       {models.length > 0 && (
                         <div className="flex flex-wrap items-center gap-1.5 pt-1">
                           {models.slice(0, 6).map((m) => (
@@ -141,16 +151,16 @@ export function GroupsCard({
                           onClick={(e) => {
                             e.preventDefault()
                             e.stopPropagation()
-                            onCopy(id ? `${label}\n${id}` : label)
+                            onCopy(`【${upstreamName}】-【${label}】-【${rateText}】`)
                           }}
                         >
                           <CopyIcon data-icon="inline-start" />
                           复制
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>复制名称与 ID</TooltipContent>
+                      <TooltipContent>复制【上游】-【name】-【rate】</TooltipContent>
                     </Tooltip>
-                  </button>
+                  </div>
                 )
               })}
             </div>

@@ -29,7 +29,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { extractTotal } from "@/lib/extract"
-import { cn } from "@/lib/utils"
 
 type Row = Record<string, unknown>
 
@@ -255,30 +254,6 @@ export function ApiKeysCard({
                 })}
               </TableBody>
             </Table>
-          </div>
-        )}
-
-        {!loading && raw !== null && (
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-xs text-muted-foreground">上游原始响应</div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(JSON.stringify(raw, null, 2))
-                    toast.success("已复制响应 JSON")
-                  } catch {
-                    toast.error("复制失败")
-                  }
-                }}
-              >
-                <CopyIcon data-icon="inline-start" />
-                复制
-              </Button>
-            </div>
-            <JsonViewer value={raw} className={cn("max-h-[260px]")} />
           </div>
         )}
       </CardContent>

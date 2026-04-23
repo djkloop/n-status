@@ -4,9 +4,9 @@ import * as React from "react"
 import { toast } from "sonner"
 
 import { ApiKeysCard } from "@/components/console/api-keys-card"
+import { AuthCard } from "@/components/console/auth-card"
 import { GroupsCard } from "@/components/console/groups-card"
-import { TokenCard, type ConsoleStatus } from "@/components/console/token-card"
-import { LoginCard } from "@/components/console/login-card"
+import { StatusCard } from "@/components/console/status-card"
 import { UpstreamManager, type Upstream } from "@/components/console/upstream-manager"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -29,6 +29,8 @@ type UserInfo = {
   role?: string
   emailVerified?: boolean
 }
+
+type ConsoleStatus = "idle" | "loading" | "ok" | "error"
 
 function getTokenKey(upstreamId: string) {
   return `${TOKEN_STORAGE_KEY_PREFIX}${upstreamId}`
@@ -140,10 +142,22 @@ export default function Home() {
   const [size, setSize] = React.useState(10)
   const [apiElapsedMs, setApiElapsedMs] = React.useState<number | null>(null)
 
+  const [health, setHealth] = React.useState<unknown | null>(null)
+  const [healthLoading, setHealthLoading] = React.useState(false)
+  const [healthElapsedMs, setHealthElapsedMs] = React.useState<number | null>(null)
+  const [healthError, setHealthError] = React.useState<string | null>(null)
+  const [healthExpanded, setHealthExpanded] = React.useState(false)
+
   const [loginLoading, setLoginLoading] = React.useState(false)
   const [user, setUser] = React.useState<UserInfo | null>(null)
 
   const activeUpstream = upstreams.find((u) => u.id === activeUpstreamId) ?? upstreams[0]
+  const requestQueueRef = React.useRef<Promise<void>>(Promise.resolve())
+  const enqueueRequest = React.useCallback((fn: () => Promise<void>) => {
+    const run = requestQueueRef.current.then(fn, fn)
+    requestQueueRef.current = run.catch(() => undefined)
+    return run
+  }, [])
 
   const onCopy = React.useCallback(async (text: string) => {
     try {
@@ -155,63 +169,117 @@ export default function Home() {
   }, [])
 
   const fetchGroups = React.useCallback(async () => {
-    if (!token) {
-      toast.error("请先输入 Token")
-      return
-    }
-    setStatus("loading")
-    setGroupsLoading(true)
-    try {
-      const { payload, elapsedMs } = await callAuthedApi(
-        token,
-        activeUpstream.baseUrl,
-        "/api/upstream/groups"
-      )
-      setGroups(extractList(payload))
-      if (elapsedMs !== null) setLastElapsedMs(elapsedMs)
-      setStatus("ok")
-      toast.success("分组已更新")
-    } catch (e) {
-      setStatus("error")
-      toast.error(e instanceof Error ? e.message : "请求失败")
-    } finally {
-      setGroupsLoading(false)
-    }
-  }, [activeUpstream.baseUrl, token])
+    return enqueueRequest(async () => {
+      if (!token) {
+        toast.error("请先输入 Token")
+        return
+      }
+      setStatus("loading")
+      setGroupsLoading(true)
+      try {
+        const { payload, elapsedMs } = await callAuthedApi(
+          token,
+          activeUpstream.baseUrl,
+          "/api/upstream/groups"
+        )
+        setGroups(extractList(payload))
+        if (elapsedMs !== null) setLastElapsedMs(elapsedMs)
+        setStatus("ok")
+        toast.success("分组已更新")
+      } catch (e) {
+        setStatus("error")
+        toast.error(e instanceof Error ? e.message : "请求失败")
+      } finally {
+        setGroupsLoading(false)
+      }
+    })
+  }, [activeUpstream.baseUrl, enqueueRequest, token])
 
   const fetchApiKeys = React.useCallback(async () => {
-    if (!token) {
-      toast.error("请先输入 Token")
-      return
-    }
-    setStatus("loading")
-    setApiLoading(true)
-    try {
-      const { payload, elapsedMs } = await callAuthedApi(
-        token,
-        activeUpstream.baseUrl,
-        `/api/upstream/api-keys/paged?page=${page}&size=${size}`
-      )
-      setApiRaw(payload)
-      setApiItems(extractList(payload))
-      if (elapsedMs !== null) {
-        setApiElapsedMs(elapsedMs)
-        setLastElapsedMs(elapsedMs)
+    return enqueueRequest(async () => {
+      if (!token) {
+        toast.error("请先输入 Token")
+        return
       }
-      setStatus("ok")
-      toast.success("列表已更新")
-    } catch (e) {
-      setStatus("error")
-      toast.error(e instanceof Error ? e.message : "请求失败")
-    } finally {
-      setApiLoading(false)
-    }
-  }, [activeUpstream.baseUrl, page, size, token])
+      setStatus("loading")
+      setApiLoading(true)
+      try {
+        const { payload, elapsedMs } = await callAuthedApi(
+          token,
+          activeUpstream.baseUrl,
+          `/api/upstream/api-keys/paged?page=${page}&size=${size}`
+        )
+        setApiRaw(payload)
+        setApiItems(extractList(payload))
+        if (elapsedMs !== null) {
+          setApiElapsedMs(elapsedMs)
+          setLastElapsedMs(elapsedMs)
+        }
+        setStatus("ok")
+        toast.success("列表已更新")
+      } catch (e) {
+        setStatus("error")
+        toast.error(e instanceof Error ? e.message : "请求失败")
+      } finally {
+        setApiLoading(false)
+      }
+    })
+  }, [activeUpstream.baseUrl, enqueueRequest, page, size, token])
 
-  const refreshAll = React.useCallback(async () => {
+  const fetchHealth = React.useCallback(async () => {
+    return enqueueRequest(async () => {
+      if (!token) {
+        toast.error("请先输入 Token")
+        return
+      }
+      setStatus("loading")
+      setHealthLoading(true)
+      try {
+        const res = await fetch("/api/upstream/service-health", {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "x-upstream-base": activeUpstream.baseUrl,
+            "x-upstream-timeout-ms": "25000",
+          },
+          cache: "no-store",
+        })
+
+        const elapsed = Number(res.headers.get("x-upstream-elapsed-ms") ?? "")
+        const payload = await readJsonSafely(res)
+
+        if (!res.ok) {
+          throw new Error(getErrorMessage(payload) ?? `HTTP ${res.status}`)
+        }
+
+        setHealth(payload)
+        setHealthError(null)
+      setHealthExpanded(true)
+
+        const elapsedMs = Number.isFinite(elapsed) ? elapsed : null
+        if (elapsedMs !== null) {
+          setHealthElapsedMs(elapsedMs)
+          setLastElapsedMs(elapsedMs)
+        }
+
+        setStatus("ok")
+        toast.success("状态已更新")
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "请求失败"
+        setHealthError(msg)
+        setStatus("error")
+        toast.error(msg)
+      } finally {
+        setHealthLoading(false)
+      }
+    })
+  }, [activeUpstream.baseUrl, enqueueRequest, token])
+
+  const requestAll = React.useCallback(async () => {
     await fetchGroups()
     await fetchApiKeys()
-  }, [fetchApiKeys, fetchGroups])
+    await fetchHealth()
+  }, [fetchApiKeys, fetchGroups, fetchHealth])
 
   const login = React.useCallback(
     async (payload: { username: string; password: string }) => {
@@ -303,20 +371,10 @@ export default function Home() {
       </div>
 
       <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-6 py-10">
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="flex flex-col gap-2">
-              <div className="text-2xl font-semibold tracking-tight">接口查询控制台</div>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span>目标：</span>
-                <Badge variant="secondary">/api/auth/login</Badge>
-                <Badge variant="secondary">/api/user/api-keys/groups</Badge>
-                <Badge variant="secondary">/api/user/api-keys/paged</Badge>
-                <span>（不设置 User-Agent）</span>
-              </div>
-            </div>
-
+        <div className="flex flex-col gap-3 rounded-xl border bg-card/40 p-4 backdrop-blur supports-[backdrop-filter]:bg-card/30">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap items-center gap-2">
+              <div className="text-lg font-semibold tracking-tight">接口控制台</div>
               <Badge variant={status === "ok" ? "default" : status === "error" ? "destructive" : "secondary"}>
                 {status === "idle" && "就绪"}
                 {status === "loading" && "请求中"}
@@ -326,10 +384,9 @@ export default function Home() {
               {typeof lastElapsedMs === "number" && (
                 <span className="font-mono text-xs text-muted-foreground">{lastElapsedMs}ms</span>
               )}
-              <Separator orientation="vertical" className="hidden h-5 md:block" />
-              <Button variant="secondary" onClick={refreshAll} disabled={!token || status === "loading"}>
-                刷新全部
-              </Button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 variant="outline"
                 onClick={() => {
@@ -340,6 +397,10 @@ export default function Home() {
                   setSelectedGroupId(null)
                   setApiItems(null)
                   setApiRaw(null)
+                  setHealth(null)
+                  setHealthElapsedMs(null)
+                  setHealthError(null)
+                  setHealthExpanded(false)
                   toast.success("已清空")
                 }}
                 disabled={status === "loading"}
@@ -349,63 +410,73 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-2 rounded-xl border bg-card/40 p-4 backdrop-blur supports-[backdrop-filter]:bg-card/30">
-            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-              <UpstreamManager
-                upstreams={upstreams}
-                value={activeUpstreamId}
-                onValueChange={(id) => {
-                  setActiveUpstreamId(id)
-                  setGroups(null)
-                  setSelectedGroupId(null)
-                  setApiItems(null)
-                  setApiRaw(null)
-                  setTokenDraft("")
-                  setUser(null)
-                }}
-                onUpstreamsChange={setUpstreams}
-              />
-              <div className="text-xs text-muted-foreground">
-                同域转发：/api/upstream/*（避免浏览器 CORS）
-              </div>
-            </div>
+          <Separator />
+
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <UpstreamManager
+              upstreams={upstreams}
+              value={activeUpstreamId}
+              onValueChange={(id) => {
+                setActiveUpstreamId(id)
+                setGroups(null)
+                setSelectedGroupId(null)
+                setApiItems(null)
+                setApiRaw(null)
+                setHealth(null)
+                setHealthElapsedMs(null)
+                setHealthError(null)
+                setHealthExpanded(false)
+                setTokenDraft("")
+                setUser(null)
+              }}
+              onUpstreamsChange={setUpstreams}
+            />
+            <div className="text-xs text-muted-foreground">同域转发：/api/upstream/*（避免浏览器 CORS）</div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <LoginCard
-            loading={loginLoading}
-            onLogin={login}
-            onLoginWithDefault={loginWithDefault}
-            user={user}
-            upstreamId={activeUpstreamId}
-          />
-          <TokenCard
-            token={token}
-            onTokenChange={(v) => {
-              if (persistToken) setStoredToken(v)
-              else setTokenDraft(v)
-            }}
-            persistToken={persistToken}
-            onPersistTokenChange={(v) => {
-              if (v) {
-                setStoredToken(tokenDraft)
-                setTokenDraft("")
-              } else {
-                setTokenDraft(storedToken)
-                setStoredToken("")
-              }
-              setPersistToken(v)
-            }}
-            status={status}
-          />
-        </div>
+        <AuthCard
+          token={token}
+          onTokenChange={(v) => {
+            if (persistToken) setStoredToken(v)
+            else setTokenDraft(v)
+          }}
+          persistToken={persistToken}
+          onPersistTokenChange={(v) => {
+            if (v) {
+              setStoredToken(tokenDraft)
+              setTokenDraft("")
+            } else {
+              setTokenDraft(storedToken)
+              setStoredToken("")
+            }
+            setPersistToken(v)
+          }}
+          status={status}
+          loginLoading={loginLoading}
+          onLogin={login}
+          onLoginWithDefault={loginWithDefault}
+          user={user}
+          upstreamId={activeUpstreamId}
+        />
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-          <div className="lg:col-span-2">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs text-muted-foreground">数据</div>
+            <Button
+              variant="secondary"
+              onClick={requestAll}
+              disabled={!token || status === "loading" || groupsLoading || apiLoading || healthLoading}
+            >
+              全部请求
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <GroupsCard
               groups={groups}
               loading={groupsLoading}
+              upstreamName={activeUpstream?.name ?? ""}
               filter={groupFilter}
               onFilterChange={setGroupFilter}
               selectedId={selectedGroupId}
@@ -414,8 +485,6 @@ export default function Home() {
               onFetch={fetchGroups}
               canFetch={Boolean(token)}
             />
-          </div>
-          <div className="lg:col-span-3">
             <ApiKeysCard
               raw={apiRaw}
               items={apiItems}
@@ -432,6 +501,19 @@ export default function Home() {
               lastElapsedMs={apiElapsedMs}
               onFetch={fetchApiKeys}
             />
+
+            <div className="lg:col-span-2">
+              <StatusCard
+                loading={healthLoading}
+                data={health}
+                error={healthError}
+                lastElapsedMs={healthElapsedMs}
+                onFetch={fetchHealth}
+                canFetch={Boolean(token)}
+                expanded={healthExpanded}
+                onExpandedChange={setHealthExpanded}
+              />
+            </div>
           </div>
         </div>
       </div>
