@@ -3,13 +3,14 @@
 import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { TerminalIcon } from "lucide-react"
+import { BookmarkIcon, TerminalIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 const NAV_ITEMS = [
   { href: "/", label: "控制台", Icon: TerminalIcon },
+  { href: "/collect", label: "收录", Icon: BookmarkIcon },
 ]
 
 export function TopNav() {
