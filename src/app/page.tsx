@@ -20,6 +20,7 @@ const TOKEN_STORAGE_KEY_PREFIX = "console:token:"
 
 const DEFAULT_UPSTREAMS: Upstream[] = [
   { id: "router", name: "ai.router.team", baseUrl: "https://ai.router.team" },
+  { id: "findcg", name: "findcg.com", baseUrl: "https://www.findcg.com" },
 ]
 
 type UserInfo = {
@@ -46,6 +47,18 @@ function isUpstreamArray(value: unknown): value is Upstream[] {
   return true
 }
 
+function migrateUpstreams(upstreams: Upstream[]): Upstream[] {
+  return upstreams.map(u => {
+    if (u.id === "findcg") {
+      // 清理 baseUrl，移除末尾斜杠和多余的 /api
+      let newBase = u.baseUrl.replace(/\/$/, "").replace(/\/api$/, "")
+      if (!newBase) newBase = "https://www.findcg.com"
+      return { ...u, baseUrl: newBase }
+    }
+    return u
+  })
+}
+
 function getDefaultUpstreams(): Upstream[] {
   return DEFAULT_UPSTREAMS
 }
@@ -63,26 +76,64 @@ async function readJsonSafely(res: Response) {
 function getErrorMessage(payload: unknown) {
   if (!payload || typeof payload !== "object") return null
   const v = payload as Record<string, unknown>
-  return typeof v.message === "string" ? v.message : null
+  
+  if (typeof v.message === "string") return v.message
+  
+  const code = v.code as number | undefined
+  if (code !== undefined && code !== 0 && v.message && typeof v.message === "string") {
+    return v.message
+  }
+  
+  if (v.data && typeof v.data === "object") {
+    const d = v.data as Record<string, unknown>
+    if (typeof d.message === "string") return d.message
+  }
+  
+  return null
 }
 
 function getAccessToken(payload: unknown) {
   if (!payload || typeof payload !== "object") return null
   const v = payload as Record<string, unknown>
-  return typeof v.accessToken === "string" ? v.accessToken : null
+  
+  const code = v.code as number | undefined
+  if (code === 0 && v.data && typeof v.data === "object") {
+    const d = v.data as Record<string, unknown>
+    if (typeof d.access_token === "string") return d.access_token
+    if (typeof d.accessToken === "string") return d.accessToken
+    return null
+  }
+  
+  if (typeof v.accessToken === "string") return v.accessToken
+  if (typeof v.access_token === "string") return v.access_token
+  return null
 }
 
 function getUserInfo(payload: unknown): UserInfo | null {
   if (!payload || typeof payload !== "object") return null
   const v = payload as Record<string, unknown>
-  if (!v.user || typeof v.user !== "object") return null
-  const u = v.user as Record<string, unknown>
+  
+  let userObj: Record<string, unknown> | null = null
+  
+  const code = v.code as number | undefined
+  if (code === 0 && v.data && typeof v.data === "object") {
+    const d = v.data as Record<string, unknown>
+    if (d.user && typeof d.user === "object") {
+      userObj = d.user as Record<string, unknown>
+    }
+  } else if (v.user && typeof v.user === "object") {
+    userObj = v.user as Record<string, unknown>
+  }
+  
+  if (!userObj) return null
+  
   return {
-    id: typeof u.id === "number" ? u.id : undefined,
-    email: typeof u.email === "string" ? u.email : undefined,
-    displayName: typeof u.displayName === "string" ? u.displayName : undefined,
-    role: typeof u.role === "string" ? u.role : undefined,
-    emailVerified: typeof u.emailVerified === "boolean" ? u.emailVerified : undefined,
+    id: typeof userObj.id === "number" ? userObj.id : undefined,
+    email: typeof userObj.email === "string" ? userObj.email : undefined,
+    displayName: (typeof userObj.displayName === "string" ? userObj.displayName : undefined) || 
+                 (typeof userObj.username === "string" && userObj.username ? userObj.username : undefined),
+    role: typeof userObj.role === "string" ? userObj.role : undefined,
+    emailVerified: typeof userObj.emailVerified === "boolean" ? userObj.emailVerified : undefined,
   }
 }
 
@@ -110,11 +161,14 @@ async function callAuthedApi(token: string, upstreamBaseUrl: string, path: strin
 }
 
 export default function Home() {
-  const [upstreams, setUpstreams] = useLocalStorageJson<Upstream[]>(
+  const [rawUpstreams, setUpstreams] = useLocalStorageJson<Upstream[]>(
     UPSTREAMS_STORAGE_KEY,
     getDefaultUpstreams(),
     isUpstreamArray
   )
+  
+  // 迁移旧配置
+  const upstreams = React.useMemo(() => migrateUpstreams(rawUpstreams), [rawUpstreams])
 
   const [activeUpstreamId, setActiveUpstreamId] = useLocalStorageString(
     ACTIVE_UPSTREAM_STORAGE_KEY,
@@ -141,6 +195,7 @@ export default function Home() {
   const [page, setPage] = React.useState(1)
   const [size, setSize] = React.useState(10)
   const [apiElapsedMs, setApiElapsedMs] = React.useState<number | null>(null)
+  const [selectedApiKeyId, setSelectedApiKeyId] = React.useState<string | null>(null)
 
   const [health, setHealth] = React.useState<unknown | null>(null)
   const [healthLoading, setHealthLoading] = React.useState(false)
@@ -286,13 +341,23 @@ export default function Home() {
       setStatus("loading")
       setLoginLoading(true)
       try {
+        // 根据上游类型构造登录参数
+        const isFindcg = activeUpstream.baseUrl.includes("findcg")
+        const loginPayload = isFindcg
+          ? { email: payload.username, password: payload.password }
+          : payload
+
+        console.log(`[Login] Upstream: ${activeUpstream.baseUrl}`)
+        console.log(`[Login] Is Findcg: ${isFindcg}`)
+        console.log(`[Login] Payload:`, JSON.stringify(loginPayload, null, 2))
+
         const res = await fetch("/api/upstream/auth/login", {
           method: "POST",
           headers: {
             "content-type": "application/json",
             "x-upstream-base": activeUpstream.baseUrl,
           },
-          body: JSON.stringify(payload),
+          body: JSON.stringify(loginPayload),
           cache: "no-store",
         })
 
@@ -397,6 +462,7 @@ export default function Home() {
                   setSelectedGroupId(null)
                   setApiItems(null)
                   setApiRaw(null)
+                  setSelectedApiKeyId(null)
                   setHealth(null)
                   setHealthElapsedMs(null)
                   setHealthError(null)
@@ -422,6 +488,7 @@ export default function Home() {
                 setSelectedGroupId(null)
                 setApiItems(null)
                 setApiRaw(null)
+                setSelectedApiKeyId(null)
                 setHealth(null)
                 setHealthElapsedMs(null)
                 setHealthError(null)
@@ -429,7 +496,7 @@ export default function Home() {
                 setTokenDraft("")
                 setUser(null)
               }}
-              onUpstreamsChange={setUpstreams}
+              onUpstreamsChange={(newUpstreams) => setUpstreams(migrateUpstreams(newUpstreams))}
             />
             <div className="text-xs text-muted-foreground">同域转发：/api/upstream/*（避免浏览器 CORS）</div>
           </div>
@@ -458,6 +525,7 @@ export default function Home() {
           onLoginWithDefault={loginWithDefault}
           user={user}
           upstreamId={activeUpstreamId}
+          upstreamBaseUrl={activeUpstream?.baseUrl ?? ""}
         />
 
         <div className="flex flex-col gap-4">
@@ -500,6 +568,8 @@ export default function Home() {
               }}
               lastElapsedMs={apiElapsedMs}
               onFetch={fetchApiKeys}
+              selectedId={selectedApiKeyId}
+              onSelect={setSelectedApiKeyId}
             />
 
             <div className="lg:col-span-2">

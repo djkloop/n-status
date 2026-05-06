@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ActivityIcon } from "lucide-react"
+import { ActivityIcon, ArrowDownIcon, ArrowUpIcon, ChevronsUpDownIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -14,7 +14,19 @@ import { cn } from "@/lib/utils"
 function pickSummary(value: unknown) {
   if (!value || typeof value !== "object") return null
   const v = value as Record<string, unknown>
-  if (!v.summary || typeof v.summary !== "object") return null
+  if (!v.summary || typeof v.summary !== "object") {
+    // findcg 格式: 没有 summary，用 groups 计算
+    if (Array.isArray(v.groups)) {
+      const total = v.groups.length
+      const healthy = v.groups.filter((g: unknown) => {
+        if (!g || typeof g !== "object") return false
+        const gg = g as Record<string, unknown>
+        return gg.current_status === 1
+      }).length
+      return { total, healthy, abnormal: total - healthy }
+    }
+    return null
+  }
   const s = v.summary as Record<string, unknown>
   const total = typeof s.totalGroups === "number" ? s.totalGroups : null
   const healthy = typeof s.healthyGroups === "number" ? s.healthyGroups : null
@@ -36,7 +48,13 @@ type HealthGroupRow = {
   lastCheckLatencyMs: number | null
   availabilityRate: number | null
   lastCheckedAt: string | null
+  currentStatus: number | null
   records: HealthRecord[]
+  layers: unknown[]
+  service: string | null
+  category: string | null
+  providerSlug: string | null
+  annotations: unknown[]
 }
 
 type HealthRecord = {
@@ -78,18 +96,56 @@ function pickGroups(value: unknown): HealthGroupRow[] {
     .map((item) => {
       if (!item || typeof item !== "object") return null
       const g = item as Record<string, unknown>
+      
+      const routerName = typeof g.name === "string" ? g.name : ""
+      const findcgName = typeof g.provider === "string" ? g.provider : ""
+      const name = routerName || findcgName
+      
       const id = typeof g.id === "number" ? g.id : null
-      const name = typeof g.name === "string" ? g.name : ""
-      const channelName = typeof g.channelName === "string" ? g.channelName : null
+      const channelName = (typeof g.channelName === "string" ? g.channelName : null) ||
+                          (typeof g.channel === "string" ? g.channel : null)
       const channelStatus = typeof g.channelStatus === "string" ? g.channelStatus : null
       const groupType = typeof g.groupType === "string" ? g.groupType : null
       const monitorEnabled = typeof g.monitorEnabled === "boolean" ? g.monitorEnabled : null
       const healthy = typeof g.healthy === "boolean" ? g.healthy : null
+      const currentStatus = typeof g.current_status === "number" ? g.current_status : null
       const lastCheckStatus = typeof g.lastCheckStatus === "string" ? g.lastCheckStatus : null
       const lastCheckLatencyMs = typeof g.lastCheckLatencyMs === "number" ? g.lastCheckLatencyMs : null
       const availabilityRate = typeof g.availabilityRate === "number" ? g.availabilityRate : null
       const lastCheckedAt = typeof g.lastCheckedAt === "string" ? g.lastCheckedAt : null
       const records = pickRecords(g.records)
+      const layers = Array.isArray(g.layers) ? g.layers : []
+      const service = typeof g.service === "string" ? g.service : null
+      const category = typeof g.category === "string" ? g.category : null
+      const providerSlug = typeof g.provider_slug === "string" ? g.provider_slug : null
+      const annotations = Array.isArray(g.annotations) ? g.annotations : []
+
+      let resolvedLatency = lastCheckLatencyMs
+      let resolvedAvailability: number | null = availabilityRate
+      let resolvedLastCheckedAt = lastCheckedAt
+
+      if (layers.length > 0) {
+        const firstLayer = layers[0] as Record<string, unknown> | null
+        if (firstLayer && typeof firstLayer.current_status === "object" && firstLayer.current_status) {
+          const cs = firstLayer.current_status as Record<string, unknown>
+          if (resolvedLatency === null && typeof cs.latency === "number") {
+            resolvedLatency = cs.latency
+          }
+          if (typeof cs.timestamp === "number") {
+            resolvedLastCheckedAt = resolvedLastCheckedAt ?? new Date(cs.timestamp * 1000).toISOString()
+          }
+        }
+        const timeline = Array.isArray((firstLayer as Record<string, unknown>)?.timeline)
+          ? (firstLayer as Record<string, unknown>).timeline as Record<string, unknown>[]
+          : []
+        if (resolvedAvailability === null && timeline.length > 0) {
+          const latest = timeline[timeline.length - 1]
+          if (typeof latest.availability === "number") {
+            resolvedAvailability = latest.availability
+          }
+        }
+      }
+      
       return {
         raw: item,
         id,
@@ -98,12 +154,18 @@ function pickGroups(value: unknown): HealthGroupRow[] {
         channelStatus,
         groupType,
         monitorEnabled,
-        healthy,
+        healthy: healthy ?? (currentStatus === 1 ? true : currentStatus !== null ? false : null),
         lastCheckStatus,
-        lastCheckLatencyMs,
-        availabilityRate,
-        lastCheckedAt,
+        lastCheckLatencyMs: resolvedLatency,
+        availabilityRate: resolvedAvailability,
+        lastCheckedAt: resolvedLastCheckedAt,
+        currentStatus,
         records,
+        layers,
+        service,
+        category,
+        providerSlug,
+        annotations,
       }
     })
     .filter((x): x is HealthGroupRow => Boolean(x && x.name))
@@ -188,6 +250,53 @@ function RecordsHeatmap({
   )
 }
 
+function LayersHeatmap({ layers }: { layers: unknown[] }) {
+  const allTimeline: { time: string; status: number; latency: number | null; availability: number | null }[] = []
+  for (const layer of layers) {
+    const l = layer as Record<string, unknown>
+    if (!Array.isArray(l.timeline)) continue
+    for (const t of l.timeline as Record<string, unknown>[]) {
+      allTimeline.push({
+        time: typeof t.time === "string" ? t.time : "",
+        status: typeof t.status === "number" ? t.status : 0,
+        latency: typeof t.latency === "number" ? t.latency : null,
+        availability: typeof t.availability === "number" ? t.availability : null,
+      })
+    }
+  }
+  if (allTimeline.length === 0) return <span className="text-xs text-muted-foreground">无时间线</span>
+
+  const cell = 10
+  const columns = Math.max(8, Math.min(24, allTimeline.length))
+  return (
+    <div
+      className="grid justify-center gap-[2px]"
+      style={{ gridTemplateColumns: `repeat(${columns}, ${cell}px)` }}
+    >
+      {allTimeline.map((t, idx) => {
+        const ok = t.status === 1
+        const title = [
+          t.time,
+          ok ? "正常" : "异常",
+          typeof t.latency === "number" ? `${t.latency}ms` : null,
+          typeof t.availability === "number" ? `${t.availability}%` : null,
+        ].filter(Boolean).join(" · ")
+
+        return (
+          <span
+            key={`${t.time}-${idx}`}
+            title={title}
+            className={cn(
+              "size-[10px] rounded-[3px] ring-1 ring-foreground/10",
+              ok ? "bg-emerald-500/45 dark:bg-emerald-400/40" : "bg-rose-500/60 dark:bg-rose-400/55"
+            )}
+          />
+        )
+      })}
+    </div>
+  )
+}
+
 function statusBadgeClass(level: "ok" | "warn" | "idle") {
   if (level === "ok") return "border border-emerald-500/25 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
   if (level === "warn") return "border border-rose-500/25 bg-rose-500/15 text-rose-700 dark:text-rose-300"
@@ -218,6 +327,21 @@ export function StatusCard({
   const [expandedRow, setExpandedRow] = React.useState<string | null>(null)
   const heatmapRef = React.useRef<HTMLDivElement | null>(null)
   const [heatmapColumns, setHeatmapColumns] = React.useState(20)
+
+  type SortKey = "status" | "latency" | "availability"
+  type SortDir = "asc" | "desc"
+  const [sortKey, setSortKey] = React.useState<SortKey | null>(null)
+  const [sortDir, setSortDir] = React.useState<SortDir>("asc")
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      if (sortDir === "asc") setSortDir("desc")
+      else { setSortKey(null); setSortDir("asc") }
+    } else {
+      setSortKey(key)
+      setSortDir("asc")
+    }
+  }
   const level = React.useMemo(() => {
     if (error) return "warn" as const
     if (!summary) return "idle" as const
@@ -259,15 +383,34 @@ export function StatusCard({
 
   const sortedGroups = React.useMemo(() => {
     const list = [...groups]
+    if (!sortKey) {
+      return list.sort((a, b) => {
+        const aa = a.healthy ? 1 : 0
+        const bb = b.healthy ? 1 : 0
+        if (aa !== bb) return aa - bb
+        const al = a.lastCheckLatencyMs ?? Number.POSITIVE_INFINITY
+        const bl = b.lastCheckLatencyMs ?? Number.POSITIVE_INFINITY
+        return bl - al
+      })
+    }
     return list.sort((a, b) => {
-      const aa = a.healthy ? 1 : 0
-      const bb = b.healthy ? 1 : 0
-      if (aa !== bb) return aa - bb
-      const al = a.lastCheckLatencyMs ?? Number.POSITIVE_INFINITY
-      const bl = b.lastCheckLatencyMs ?? Number.POSITIVE_INFINITY
-      return bl - al
+      let cmp = 0
+      if (sortKey === "status") {
+        const aa = a.healthy === true ? 1 : a.healthy === false ? 0 : -1
+        const bb = b.healthy === true ? 1 : b.healthy === false ? 0 : -1
+        cmp = aa - bb
+      } else if (sortKey === "latency") {
+        const aa = a.lastCheckLatencyMs ?? Number.POSITIVE_INFINITY
+        const bb = b.lastCheckLatencyMs ?? Number.POSITIVE_INFINITY
+        cmp = aa - bb
+      } else if (sortKey === "availability") {
+        const aa = a.availabilityRate ?? -1
+        const bb = b.availabilityRate ?? -1
+        cmp = aa - bb
+      }
+      return sortDir === "asc" ? cmp : -cmp
     })
-  }, [groups])
+  }, [groups, sortKey, sortDir])
 
   const previewGroups = React.useMemo(() => sortedGroups.slice(0, 60), [sortedGroups])
 
@@ -334,9 +477,24 @@ export function StatusCard({
                   <TableRow>
                     <TableHead>分组</TableHead>
                     <TableHead>渠道</TableHead>
-                    <TableHead>状态</TableHead>
-                    <TableHead>延迟</TableHead>
-                    <TableHead>可用率</TableHead>
+                    <TableHead>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort("status")}>
+                        状态
+                        {sortKey === "status" ? (sortDir === "asc" ? <ArrowUpIcon className="size-3" /> : <ArrowDownIcon className="size-3" />) : <ChevronsUpDownIcon className="size-3 opacity-30" />}
+                      </button>
+                    </TableHead>
+                    <TableHead>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort("latency")}>
+                        延迟
+                        {sortKey === "latency" ? (sortDir === "asc" ? <ArrowUpIcon className="size-3" /> : <ArrowDownIcon className="size-3" />) : <ChevronsUpDownIcon className="size-3 opacity-30" />}
+                      </button>
+                    </TableHead>
+                    <TableHead>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort("availability")}>
+                        可用率
+                        {sortKey === "availability" ? (sortDir === "asc" ? <ArrowUpIcon className="size-3" /> : <ArrowDownIcon className="size-3" />) : <ChevronsUpDownIcon className="size-3 opacity-30" />}
+                      </button>
+                    </TableHead>
                     <TableHead className="text-right">最近检查</TableHead>
                     <TableHead className="w-20" />
                   </TableRow>
@@ -405,11 +563,17 @@ export function StatusCard({
                                     <div className="flex items-center justify-between gap-2">
                                       <div className="text-xs text-muted-foreground">采样点</div>
                                       <div className="font-mono text-xs text-muted-foreground tabular-nums">
-                                        {g.records.length || "-"}
+                                        {g.records.length || g.layers.length || "-"}
                                       </div>
                                     </div>
                                     <div ref={rowOpen ? heatmapRef : null} className="mt-2 w-full overflow-x-auto">
-                                      <RecordsHeatmap records={g.records} limit={60} columns={heatmapColumns} />
+                                      {g.records.length > 0 ? (
+                                        <RecordsHeatmap records={g.records} limit={60} columns={heatmapColumns} />
+                                      ) : g.layers.length > 0 ? (
+                                        <LayersHeatmap layers={g.layers} />
+                                      ) : (
+                                        <span className="text-xs text-muted-foreground">无数据</span>
+                                      )}
                                     </div>
                                   </div>
                                 </div>

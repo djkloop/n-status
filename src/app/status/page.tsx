@@ -25,6 +25,7 @@ const TOKEN_STORAGE_KEY_PREFIX = "console:token:"
 
 const DEFAULT_UPSTREAMS: Upstream[] = [
   { id: "router", name: "ai.router.team", baseUrl: "https://ai.router.team" },
+  { id: "findcg", name: "findcg.com", baseUrl: "https://www.findcg.com" },
 ]
 
 const STATUS_ENABLED_KEY_PREFIX = "status:enabled:"

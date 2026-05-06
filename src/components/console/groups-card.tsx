@@ -8,11 +8,10 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { pickDisplayName, pickId, pickRate, pickSupportedModels } from "@/lib/extract"
+import { pickDisplayName, pickId, pickRate, pickSupportedModels, pickPlatform, pickStatus, pickDescription, platformToModel } from "@/lib/extract"
 import { cn } from "@/lib/utils"
 
 export function GroupsCard({
@@ -50,8 +49,8 @@ export function GroupsCard({
   }, [filter, list])
 
   return (
-    <Card className="bg-card/60 backdrop-blur supports-[backdrop-filter]:bg-card/50">
-      <CardHeader className="flex flex-row items-start justify-between gap-4">
+    <Card className="bg-card/60 backdrop-blur supports-[backdrop-filter]:bg-card/50 flex flex-col !gap-0 !py-0 h-full">
+      <CardHeader className="flex flex-row items-start justify-between gap-4 shrink-0">
         <div className="flex flex-col gap-1">
           <CardTitle className="flex items-center gap-2 text-base">
             <LayersIcon data-icon="inline-start" />
@@ -74,8 +73,9 @@ export function GroupsCard({
         </div>
       </CardHeader>
 
-      <CardContent className="flex flex-col gap-3">
-        <Separator />
+      <Separator />
+
+      <CardContent className="flex flex-col gap-3 p-4 pt-0">
         {loading && (
           <div className="flex flex-col gap-2">
             <Skeleton className="h-10 w-full" />
@@ -85,19 +85,22 @@ export function GroupsCard({
         )}
 
         {!loading && list.length === 0 && (
-          <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-            暂无数据。先在顶部点击“拉取分组”。
+          <div className="flex items-center justify-center rounded-lg border border-dashed p-8 text-sm text-muted-foreground">
+            暂无数据。先在顶部点击"拉取分组"。
           </div>
         )}
 
         {!loading && list.length > 0 && (
-          <ScrollArea className="h-[420px] rounded-lg border">
+          <div className="overflow-y-auto h-[336px] rounded-md">
             <div className="flex flex-col">
               {filtered.map((g, idx) => {
                 const id = pickId(g)
                 const label = pickDisplayName(g)
                 const rate = pickRate(g)
                 const models = pickSupportedModels(g)
+                const platform = pickPlatform(g)
+                const status = pickStatus(g)
+                const description = pickDescription(g)
                 const rateText = rate ?? "1"
                 const active = id && selectedId === id
                 return (
@@ -113,20 +116,32 @@ export function GroupsCard({
                     role="button"
                     tabIndex={0}
                     className={cn(
-                      "group flex items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-accent/50",
+                      "group flex items-center justify-between gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent/50",
                       active && "bg-accent/60"
                     )}
                   >
                     <div className="flex min-w-0 flex-1 flex-col gap-1">
                       <div className="flex min-w-0 items-center justify-between gap-2">
                         <div className="truncate font-medium">{label}</div>
-                        {rate && (
-                          <Badge variant="secondary" className="shrink-0 font-mono text-[11px]">
-                            倍率 {rate}
-                          </Badge>
-                        )}
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          {platform && (
+                            <Badge variant="outline" className="font-mono text-[10px]">
+                              {platform}
+                            </Badge>
+                          )}
+                          {status && (
+                            <Badge variant={status === "active" ? "secondary" : "destructive"} className="text-[10px]">
+                              {status === "active" ? "活跃" : status}
+                            </Badge>
+                          )}
+                          {rate && (
+                            <Badge variant="secondary" className="font-mono text-[11px]">
+                              倍率 {rate}
+                            </Badge>
+                          )}
+                        </div>
                       </div>
-                      {id && <div className="truncate font-mono text-xs text-muted-foreground">{id}</div>}
+                      {description && <div className="truncate text-xs text-muted-foreground">{description}</div>}
                       {models.length > 0 && (
                         <div className="flex flex-wrap items-center gap-1.5 pt-1">
                           {models.slice(0, 6).map((m) => (
@@ -151,24 +166,25 @@ export function GroupsCard({
                           onClick={(e) => {
                             e.preventDefault()
                             e.stopPropagation()
-                            onCopy(`【${upstreamName}】-【${label}】-【${rateText}】`)
+                            const modelLabel = platformToModel(platform)
+                            onCopy(`【${upstreamName}】-【${modelLabel}】-【${rateText}】`)
                           }}
                         >
                           <CopyIcon data-icon="inline-start" />
                           复制
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>复制【上游】-【name】-【rate】</TooltipContent>
+                      <TooltipContent>复制【上游】-【模型】-【倍率】</TooltipContent>
                     </Tooltip>
                   </div>
                 )
               })}
             </div>
-          </ScrollArea>
+          </div>
         )}
 
         {!loading && selectedId && (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2 shrink-0">
             <div className="text-xs text-muted-foreground">已选分组原始数据</div>
             <JsonViewer
               value={list.find((g) => pickId(g) === selectedId)}

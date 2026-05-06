@@ -5,16 +5,9 @@ import { CopyIcon, ListIcon, RotateCwIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { JsonViewer } from "@/components/json-viewer"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -26,34 +19,9 @@ import {
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { extractTotal } from "@/lib/extract"
-
-type Row = Record<string, unknown>
-
-function toRow(v: unknown): Row | null {
-  if (!v || typeof v !== "object") return null
-  return v as Row
-}
-
-function formatCell(v: unknown) {
-  if (v === null || v === undefined) return "—"
-  if (typeof v === "string") return v
-  if (typeof v === "number" || typeof v === "boolean") return String(v)
-  return "…"
-}
-
-function getColumnKeys(items: unknown[]) {
-  const first = toRow(items[0])
-  if (!first) return []
-  const keys = Object.keys(first)
-  const preferred = ["id", "name", "key", "apiKey", "createdAt", "updatedAt", "status"]
-  const out: string[] = []
-  for (const k of preferred) if (keys.includes(k) && !out.includes(k)) out.push(k)
-  for (const k of keys) if (!out.includes(k)) out.push(k)
-  return out.slice(0, 6)
-}
+import { extractTotal, pickKey, pickDisplayName, pickId } from "@/lib/extract"
+import { cn } from "@/lib/utils"
 
 export function ApiKeysCard({
   raw,
@@ -67,6 +35,8 @@ export function ApiKeysCard({
   onSizeChange,
   lastElapsedMs,
   onFetch,
+  selectedId,
+  onSelect,
 }: {
   raw: unknown | null
   items: unknown[] | null
@@ -79,6 +49,8 @@ export function ApiKeysCard({
   onSizeChange: (v: number) => void
   lastElapsedMs: number | null
   onFetch: () => void
+  selectedId: string | null
+  onSelect: (id: string | null) => void
 }) {
   const list = React.useMemo(() => items ?? [], [items])
   const total = raw !== null ? extractTotal(raw) : null
@@ -95,11 +67,9 @@ export function ApiKeysCard({
     })
   }, [filter, list])
 
-  const cols = React.useMemo(() => getColumnKeys(filtered), [filtered])
-
   return (
-    <Card className="bg-card/60 backdrop-blur supports-[backdrop-filter]:bg-card/50">
-      <CardHeader className="flex flex-row items-start justify-between gap-4">
+    <Card className="bg-card/60 backdrop-blur supports-[backdrop-filter]:bg-card/50 flex flex-col !gap-0 !py-0 h-full">
+      <CardHeader className="flex flex-row items-start justify-between gap-4 shrink-0">
         <div className="flex flex-col gap-1">
           <CardTitle className="flex items-center gap-2 text-base">
             <ListIcon data-icon="inline-start" />
@@ -124,14 +94,14 @@ export function ApiKeysCard({
         </div>
       </CardHeader>
 
-      <CardContent className="flex flex-col gap-4">
-        <Separator />
+      <Separator />
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+      <CardContent className="flex flex-col gap-3 p-4 pt-0">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-4 shrink-0">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="page">页码</Label>
+            <Label htmlFor="ak-page">页码</Label>
             <Input
-              id="page"
+              id="ak-page"
               inputMode="numeric"
               value={String(page)}
               onChange={(e) => onPageChange(Math.max(1, Number(e.target.value || 1)))}
@@ -156,9 +126,9 @@ export function ApiKeysCard({
           </div>
 
           <div className="flex flex-col gap-2 md:col-span-2">
-            <Label htmlFor="filter">本地过滤</Label>
+            <Label htmlFor="ak-filter">本地过滤</Label>
             <Input
-              id="filter"
+              id="ak-filter"
               value={filter}
               onChange={(e) => onFilterChange(e.target.value)}
               placeholder="输入关键字（本地 JSON contains）"
@@ -171,89 +141,115 @@ export function ApiKeysCard({
             <Skeleton className="h-10 w-full" />
             <Skeleton className="h-10 w-full" />
             <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-full" />
           </div>
         )}
 
         {!loading && list.length === 0 && (
-          <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-            暂无数据。设置 page/size 后点击“查询”。
+          <div className="flex items-center justify-center rounded-lg border border-dashed p-8 text-sm text-muted-foreground">
+            暂无数据。设置 page/size 后点击"查询"。
           </div>
         )}
 
         {!loading && list.length > 0 && (
-          <div className="overflow-auto rounded-lg border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  {cols.map((k) => (
-                    <TableHead key={k} className="whitespace-nowrap">
-                      {k}
-                    </TableHead>
-                  ))}
-                  <TableHead className="w-24" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map((row, idx) => {
-                  const obj = toRow(row)
-                  const key = (obj?.id as string | undefined) ?? idx
-
-                  return (
-                    <Dialog key={key}>
-                      <TableRow className="hover:bg-accent/40">
-                        {cols.map((k) => (
-                          <TableCell key={k} className="max-w-[260px] truncate font-mono text-xs">
-                            {formatCell(obj?.[k])}
-                          </TableCell>
-                        ))}
-                        <TableCell className="text-right">
-                          <DialogTrigger asChild>
-                            <Button variant="secondary" size="sm">
-                              详情
+          <div className="overflow-y-auto h-[336px] rounded-md">
+            <div className="flex flex-col">
+              {filtered.map((row, idx) => {
+                const id = pickId(row)
+                const name = pickDisplayName(row)
+                const keyValue = pickKey(row)
+                const active = id && selectedId === id
+                return (
+                  <div
+                    key={id ?? idx}
+                    onClick={() => onSelect(id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault()
+                        onSelect(id)
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    className={cn(
+                      "group flex items-center justify-between gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent/50",
+                      active && "bg-accent/60"
+                    )}
+                  >
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <div className="flex min-w-0 items-center justify-between gap-2">
+                        <div className="truncate font-medium">{name}</div>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          {keyValue && (
+                            <Badge variant="outline" className="font-mono text-[10px] max-w-[180px] truncate">
+                              {keyValue.slice(0, 8)}…{keyValue.slice(-4)}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {keyValue && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={async (e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                try {
+                                  await navigator.clipboard.writeText(keyValue)
+                                  toast.success("Key 已复制")
+                                } catch {
+                                  toast.error("复制失败")
+                                }
+                              }}
+                            >
+                              <CopyIcon data-icon="inline-start" />
+                              复制
                             </Button>
-                          </DialogTrigger>
-                        </TableCell>
-                      </TableRow>
+                          </TooltipTrigger>
+                          <TooltipContent>复制 Key</TooltipContent>
+                        </Tooltip>
+                      )}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={async (e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              try {
+                                await navigator.clipboard.writeText(JSON.stringify(row, null, 2))
+                                toast.success("JSON 已复制")
+                              } catch {
+                                toast.error("复制失败")
+                              }
+                            }}
+                          >
+                            详情
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>复制 JSON 详情</TooltipContent>
+                      </Tooltip>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
-                      <DialogContent className="max-w-3xl">
-                        <DialogHeader>
-                          <DialogTitle>记录详情</DialogTitle>
-                          <DialogDescription className="flex items-center justify-between gap-3">
-                            <span className="truncate font-mono text-xs text-muted-foreground">
-                              {typeof obj?.id === "string" ? obj.id : ""}
-                            </span>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={async () => {
-                                    try {
-                                      await navigator.clipboard.writeText(
-                                        JSON.stringify(row, null, 2)
-                                      )
-                                      toast.success("已复制 JSON")
-                                    } catch {
-                                      toast.error("复制失败")
-                                    }
-                                  }}
-                                >
-                                  <CopyIcon data-icon="inline-start" />
-                                  复制 JSON
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>复制整条记录</TooltipContent>
-                            </Tooltip>
-                          </DialogDescription>
-                        </DialogHeader>
-                        <JsonViewer value={row} />
-                      </DialogContent>
-                    </Dialog>
-                  )
-                })}
-              </TableBody>
-            </Table>
+        {!loading && selectedId && (
+          <div className="flex flex-col gap-2 shrink-0">
+            <div className="text-xs text-muted-foreground">已选 Key 原始数据</div>
+            <JsonViewer
+              value={list.find((row) => pickId(row) === selectedId)}
+              className="max-h-[220px]"
+            />
           </div>
         )}
       </CardContent>

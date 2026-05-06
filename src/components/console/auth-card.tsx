@@ -47,6 +47,7 @@ export function AuthCard({
   onLoginWithDefault,
   user,
   upstreamId,
+  upstreamBaseUrl,
 }: {
   token: string
   onTokenChange: (v: string) => void
@@ -58,6 +59,7 @@ export function AuthCard({
   onLoginWithDefault: () => void
   user: UserInfo | null
   upstreamId: string
+  upstreamBaseUrl: string
 }) {
   const [showToken, setShowToken] = React.useState(false)
 
@@ -98,7 +100,7 @@ export function AuthCard({
           <div className="text-xs text-muted-foreground">方式一：登录获取 Token</div>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div className="flex flex-col gap-2">
-              <Label htmlFor="username">用户名（邮箱）</Label>
+              <Label htmlFor="username">{upstreamBaseUrl.includes("findcg") ? "邮箱" : "用户名（邮箱）"}</Label>
               <Input
                 id="username"
                 value={username}
