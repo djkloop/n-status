@@ -153,6 +153,7 @@ export default function Home() {
 
   const [token, setToken] = React.useState("")
   const [user, setUser] = React.useState<UserInfo | null>(null)
+  const tokenRef = React.useRef("")
 
   const [groups, setGroups] = React.useState<unknown[] | null>(null)
   const [groupsLoading, setGroupsLoading] = React.useState(false)
@@ -210,6 +211,7 @@ export default function Home() {
   }, [activeUpstreamId, token, user, groups, apiRaw, apiItems, apiElapsedMs, health, healthElapsedMs, healthError, groupsFetchedAt, apiFetchedAt, healthFetchedAt])
 
   const loadStateToUI = React.useCallback((s: UpstreamState) => {
+    tokenRef.current = s.token
     setToken(s.token)
     setUser(s.user)
     setGroups(s.groups)
@@ -223,6 +225,10 @@ export default function Home() {
     setApiFetchedAt(s.apiFetchedAt)
     setHealthFetchedAt(s.healthFetchedAt)
   }, [])
+
+  React.useEffect(() => {
+    tokenRef.current = token
+  }, [token])
 
   React.useEffect(() => {
     for (const u of upstreams) {
@@ -252,7 +258,8 @@ export default function Home() {
 
   const fetchGroups = React.useCallback(async (silent = false) => {
     return enqueueRequest(async () => {
-      if (!token) {
+      const currentToken = tokenRef.current
+      if (!currentToken) {
         if (!silent) toast.error("请先输入 Token")
         return
       }
@@ -261,7 +268,7 @@ export default function Home() {
       try {
         const res = await fetch("/api/upstream/groups", {
           method: "GET",
-          headers: { Authorization: `Bearer ${token}`, "x-upstream-base": activeUpstream.baseUrl },
+          headers: { Authorization: `Bearer ${currentToken}`, "x-upstream-base": activeUpstream.baseUrl },
           cache: "no-store",
         })
         const elapsed = Number(res.headers.get("x-upstream-elapsed-ms") ?? "")
@@ -284,11 +291,12 @@ export default function Home() {
         setGroupsLoading(false)
       }
     })
-  }, [activeUpstream.baseUrl, activeProvider, enqueueRequest, token])
+  }, [activeUpstream.baseUrl, activeProvider, enqueueRequest])
 
   const fetchApiKeys = React.useCallback(async (silent = false) => {
     return enqueueRequest(async () => {
-      if (!token) {
+      const currentToken = tokenRef.current
+      if (!currentToken) {
         if (!silent) toast.error("请先输入 Token")
         return
       }
@@ -297,7 +305,7 @@ export default function Home() {
       try {
         const res = await fetch(`/api/upstream/api-keys/paged?page=${page}&size=${size}`, {
           method: "GET",
-          headers: { Authorization: `Bearer ${token}`, "x-upstream-base": activeUpstream.baseUrl },
+          headers: { Authorization: `Bearer ${currentToken}`, "x-upstream-base": activeUpstream.baseUrl },
           cache: "no-store",
         })
         const elapsed = Number(res.headers.get("x-upstream-elapsed-ms") ?? "")
@@ -324,11 +332,12 @@ export default function Home() {
         setApiLoading(false)
       }
     })
-  }, [activeUpstream.baseUrl, activeProvider, enqueueRequest, page, size, token])
+  }, [activeUpstream.baseUrl, activeProvider, enqueueRequest, page, size])
 
   const fetchHealth = React.useCallback(async (silent = false) => {
     return enqueueRequest(async () => {
-      if (!token) {
+      const currentToken = tokenRef.current
+      if (!currentToken) {
         if (!silent) toast.error("请先输入 Token")
         return
       }
@@ -338,7 +347,7 @@ export default function Home() {
         const res = await fetch("/api/upstream/service-health", {
           method: "GET",
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${currentToken}`,
             "x-upstream-base": activeUpstream.baseUrl,
             "x-upstream-timeout-ms": "25000",
           },
@@ -370,7 +379,7 @@ export default function Home() {
         setHealthLoading(false)
       }
     })
-  }, [activeUpstream.baseUrl, activeProvider, enqueueRequest, token])
+  }, [activeUpstream.baseUrl, activeProvider, enqueueRequest])
 
   const requestAll = React.useCallback(async (silent = false) => {
     await Promise.all([fetchGroups(silent), fetchApiKeys(silent), fetchHealth(silent)])
@@ -404,6 +413,7 @@ export default function Home() {
         const accessToken = targetProvider.extractAccessToken(body)
         const userInfo = targetProvider.extractUserInfo(body)
         if (accessToken) {
+          tokenRef.current = accessToken
           setToken(accessToken)
           setUser(userInfo)
           if (Number.isFinite(elapsed)) setLastElapsedMs(elapsed)
@@ -443,6 +453,7 @@ export default function Home() {
       }
 
       setToken(accessToken)
+      tokenRef.current = accessToken
       setUser(userInfo)
       if (Number.isFinite(elapsed)) setLastElapsedMs(elapsed)
       setStatus("ok")
