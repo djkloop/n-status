@@ -12,7 +12,7 @@ export const moaiProvider: UpstreamProvider = {
     login: "/api/v1/auth/login",
     groups: "/api/v1/groups/available",
     apiKeys: "/api/v1/keys",
-    serviceHealth: "/api/v1/availability/status",
+    serviceHealth: "/api/v1/channel-monitors",
   },
 
   transformLoginPayload(username: string, password: string) {
@@ -127,12 +127,14 @@ export const moaiProvider: UpstreamProvider = {
   extractHealthSummary(response: unknown): HealthSummary | null {
     if (!response || typeof response !== "object") return null
     const v = response as Record<string, unknown>
-    if (Array.isArray(v.groups)) {
-      const total = v.groups.length
-      const healthy = v.groups.filter((g: unknown) => {
+    const data = v.data && typeof v.data === "object" ? v.data as Record<string, unknown> : null
+    const items = Array.isArray(data?.items) ? data.items : []
+    if (items.length > 0) {
+      const total = items.length
+      const healthy = items.filter((g: unknown) => {
         if (!g || typeof g !== "object") return false
         const gg = g as Record<string, unknown>
-        return gg.current_status === 1
+        return gg.primary_status === "operational"
       }).length
       return { total, healthy, abnormal: total - healthy }
     }
@@ -142,49 +144,51 @@ export const moaiProvider: UpstreamProvider = {
   extractHealthGroups(response: unknown): HealthGroupItem[] {
     if (!response || typeof response !== "object") return []
     const v = response as Record<string, unknown>
-    if (!Array.isArray(v.groups)) return []
-    return v.groups
+    const data = v.data && typeof v.data === "object" ? v.data as Record<string, unknown> : null
+    const items = Array.isArray(data?.items) ? data.items : []
+    if (items.length === 0) return []
+
+    return items
       .flatMap((item) => {
         if (!item || typeof item !== "object") return []
         const g = item as Record<string, unknown>
-        const name = typeof g.provider === "string" ? g.provider : ""
+        const name = typeof g.name === "string" ? g.name : ""
         if (!name) return []
-        const currentStatus = typeof g.current_status === "number" ? g.current_status : null
-        const healthy = currentStatus === 1 ? true : currentStatus !== null ? false : null
-        const layers = Array.isArray(g.layers) ? g.layers : []
+        const primaryStatus = typeof g.primary_status === "string" ? g.primary_status : null
+        const currentStatus = primaryStatus === "operational" ? 1 : primaryStatus ? 0 : null
+        const healthy = primaryStatus === "operational" ? true : primaryStatus ? false : null
+        const records = Array.isArray(g.timeline)
+          ? g.timeline.flatMap((entry) => {
+              if (!entry || typeof entry !== "object") return []
+              const t = entry as Record<string, unknown>
+              const status = typeof t.status === "string" ? t.status : null
+              return [{
+                fullLabel: typeof g.primary_model === "string" ? g.primary_model : null,
+                status: status === "operational" ? "ONLINE" : status === "failed" ? "OFFLINE" : "UNKNOWN",
+                severity: status === "degraded" ? "MEDIUM" : status === "failed" ? "HIGH" : null,
+                latencyMs: typeof t.latency_ms === "number" ? t.latency_ms : null,
+                statusCode: null,
+                model: typeof g.primary_model === "string" ? g.primary_model : null,
+                message: status,
+                checkedAt: typeof t.checked_at === "string" ? t.checked_at : null,
+              }]
+            })
+          : []
 
-        let resolvedLatency: number | null = null
-        let resolvedAvailability: number | null = null
-        let resolvedLastCheckedAt: string | null = null
-
-        if (layers.length > 0) {
-          const firstLayer = layers[0] as Record<string, unknown>
-          if (typeof firstLayer.current_status === "object" && firstLayer.current_status) {
-            const cs = firstLayer.current_status as Record<string, unknown>
-            if (typeof cs.latency === "number") resolvedLatency = cs.latency
-            if (typeof cs.timestamp === "number") {
-              resolvedLastCheckedAt = new Date(cs.timestamp * 1000).toISOString()
-            }
-          }
-          const timeline = Array.isArray(firstLayer.timeline) ? firstLayer.timeline as Record<string, unknown>[] : []
-          if (timeline.length > 0) {
-            const latest = timeline[timeline.length - 1]
-            if (typeof latest.availability === "number") resolvedAvailability = latest.availability
-          }
-        }
+        const latestRecord = records[records.length - 1] ?? null
 
         return [{
           raw: item,
           id: typeof g.id === "number" ? g.id : null,
           name,
-          channelName: typeof g.channel === "string" ? g.channel : null,
+          channelName: typeof g.group_name === "string" && g.group_name ? g.group_name : null,
           healthy,
-          lastCheckLatencyMs: resolvedLatency,
-          availabilityRate: resolvedAvailability,
-          lastCheckedAt: resolvedLastCheckedAt,
+          lastCheckLatencyMs: typeof g.primary_latency_ms === "number" ? g.primary_latency_ms : null,
+          availabilityRate: typeof g.availability_7d === "number" ? g.availability_7d : null,
+          lastCheckedAt: latestRecord?.checkedAt ?? null,
           currentStatus,
-          records: [],
-          layers,
+          records,
+          layers: [],
         }]
       })
   },
