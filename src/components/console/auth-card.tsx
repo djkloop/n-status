@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { LogInIcon, MailIcon, ShieldIcon, UserRoundIcon } from "lucide-react"
+import { LogInIcon, MailIcon, ShieldIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -72,18 +72,8 @@ export function AuthCard({
           </div>
 
           {user ? (
-            <div className="flex flex-col gap-2 rounded-lg border border-border/60 bg-background/45 px-3 py-2.5 md:flex-row md:items-center md:justify-between">
+            <div className="rounded-lg border border-border/60 bg-background/45 px-3 py-2.5">
               <div className="flex min-w-0 items-center gap-2.5">
-                <div className="rounded-md bg-muted/70 p-1.5 text-muted-foreground">
-                  <UserRoundIcon className="size-4" />
-                </div>
-                <div className="min-w-0 flex items-center gap-2 text-sm">
-                  <span className="shrink-0 text-xs text-muted-foreground">显示名</span>
-                  <span className="truncate font-medium">{user.displayName ?? "未返回"}</span>
-                </div>
-              </div>
-
-              <div className="flex min-w-0 items-center gap-2.5 md:max-w-[56%]">
                 <div className="rounded-md bg-muted/70 p-1.5 text-muted-foreground">
                   <MailIcon className="size-4" />
                 </div>
