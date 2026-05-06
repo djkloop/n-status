@@ -7,14 +7,12 @@ const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 
 function resolveCredentials(provider: { credentialEnvPrefix?: string }) {
   const prefix = provider.credentialEnvPrefix
-  if (prefix) {
-    const username = process.env[`${prefix}_USERNAME`]
-    const password = process.env[`${prefix}_PASSWORD`]
-    if (username && password) return { username, password }
-  }
-  const fallbackUsername = process.env.DEFAULT_LOGIN_USERNAME
-  const fallbackPassword = process.env.DEFAULT_LOGIN_PASSWORD
-  if (fallbackUsername && fallbackPassword) return { username: fallbackUsername, password: fallbackPassword }
+  if (!prefix) return null
+
+  const username = process.env[`${prefix}_USERNAME`]
+  const password = process.env[`${prefix}_PASSWORD`]
+  if (username && password) return { username, password }
+
   return null
 }
 
@@ -38,12 +36,12 @@ export async function POST(req: Request) {
   if (!creds) {
     const prefix = provider.credentialEnvPrefix
       ? `环境变量 ${provider.credentialEnvPrefix}_USERNAME / ${provider.credentialEnvPrefix}_PASSWORD`
-      : "环境变量 DEFAULT_LOGIN_USERNAME / DEFAULT_LOGIN_PASSWORD"
+      : "当前上游未配置 credentialEnvPrefix"
     return NextResponse.json(
       {
         ok: false,
         status: 500,
-        message: `未配置默认登录凭据（请设置 ${prefix}）`,
+        message: `未配置当前上游登录凭据（请设置 ${prefix}）`,
       } satisfies ApiErrorPayload,
       { status: 500 }
     )

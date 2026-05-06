@@ -110,10 +110,10 @@ src/
 
 #### 引导登录路由 (`app/api/bootstrap/login`)
 
-- **用途**：使用环境变量配置的默认凭据自动登录
+- **用途**：使用当前上游对应的环境变量凭据自动登录
 - **环境变量**：
-  - `DEFAULT_LOGIN_USERNAME` - 默认用户名
-  - `DEFAULT_LOGIN_PASSWORD` - 默认密码
+  - `ROUTER_USERNAME` / `ROUTER_PASSWORD` - Router 上游登录凭据
+  - `FINDCG_USERNAME` / `FINDCG_PASSWORD` - FindCG 上游登录凭据
 
 ---
 
@@ -135,8 +135,7 @@ src/
 - `fetchGroups()` - 拉取分组列表
 - `fetchApiKeys()` - 分页查询 API Key
 - `fetchHealth()` - 获取服务健康状态
-- `login()` - 用户登录
-- `loginWithDefault()` - 使用默认凭据登录
+- `login()` - 使用当前上游对应环境变量登录
 
 #### 上游状态页 (`app/status/page.tsx`)
 
@@ -165,7 +164,7 @@ src/
 
 | 组件 | 路径 | 功能 |
 |------|------|------|
-| `AuthCard` | `components/console/auth-card.tsx` | 认证卡片（登录 + Token 输入） |
+| `AuthCard` | `components/console/auth-card.tsx` | 认证卡片（自动登录） |
 | `GroupsCard` | `components/console/groups-card.tsx` | 分组列表展示 |
 | `ApiKeysCard` | `components/console/api-keys-card.tsx` | API Key 分页表格 |
 | `StatusCard` | `components/console/status-card.tsx` | 服务健康状态卡片 |
@@ -261,8 +260,10 @@ docker-compose up -d
 
 | 变量名 | 描述 | 默认值 |
 |--------|------|--------|
-| `DEFAULT_LOGIN_USERNAME` | 默认登录用户名 | - |
-| `DEFAULT_LOGIN_PASSWORD` | 默认登录密码 | - |
+| `ROUTER_USERNAME` | Router 登录用户名 | - |
+| `ROUTER_PASSWORD` | Router 登录密码 | - |
+| `FINDCG_USERNAME` | FindCG 登录用户名 | - |
+| `FINDCG_PASSWORD` | FindCG 登录密码 | - |
 
 ---
 

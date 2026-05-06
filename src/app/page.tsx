@@ -421,48 +421,7 @@ export default function Home() {
     }
   }, [upstreams, getUpstreamState, loadStateToUI, requestAll, saveCurrentState])
 
-  const login = React.useCallback(
-    async (payload: { username: string; password: string }) => {
-      setStatus("loading")
-      setLoginLoading(true)
-      try {
-        const loginPayload = activeProvider.transformLoginPayload(payload.username, payload.password)
-        const res = await fetch("/api/upstream/auth/login", {
-          method: "POST",
-          headers: { "content-type": "application/json", "x-upstream-base": activeUpstream.baseUrl },
-          body: JSON.stringify(loginPayload),
-          cache: "no-store",
-        })
-        const elapsed = Number(res.headers.get("x-upstream-elapsed-ms") ?? "")
-        const body = await readJsonSafely(res)
-        if (!res.ok) throw new Error(activeProvider.extractErrorMessage(body) ?? `HTTP ${res.status}`)
-
-        const accessToken = activeProvider.extractAccessToken(body)
-        const userInfo = activeProvider.extractUserInfo(body)
-        if (!accessToken) {
-          toast.error("未找到 accessToken 字段")
-          setStatus("error")
-          return
-        }
-
-        setToken(accessToken)
-        setUser(userInfo)
-        if (Number.isFinite(elapsed)) setLastElapsedMs(elapsed)
-        setStatus("ok")
-        toast.success("登录成功")
-
-        setTimeout(() => requestAll(false), 0)
-      } catch (e) {
-        setStatus("error")
-        toast.error(e instanceof Error ? e.message : "登录失败")
-      } finally {
-        setLoginLoading(false)
-      }
-    },
-    [activeUpstream.baseUrl, activeProvider, requestAll]
-  )
-
-  const loginWithDefault = React.useCallback(async () => {
+  const login = React.useCallback(async () => {
     setStatus("loading")
     setLoginLoading(true)
     try {
@@ -606,17 +565,10 @@ export default function Home() {
         </div>
 
         <AuthCard
-          token={token}
-          onTokenChange={setToken}
-          persistToken={true}
-          onPersistTokenChange={() => {}}
           status={status}
           loginLoading={loginLoading}
           onLogin={login}
-          onLoginWithDefault={loginWithDefault}
           user={user}
-          upstreamId={activeUpstreamId}
-          loginLabel={activeProvider.loginLabel}
         />
 
         <div className="flex flex-col gap-4">

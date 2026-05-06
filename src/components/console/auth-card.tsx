@@ -1,17 +1,12 @@
 "use client"
 
 import * as React from "react"
-import { EyeIcon, EyeOffIcon, KeyRoundIcon, LogInIcon, MailIcon, ShieldIcon } from "lucide-react"
-import { toast } from "sonner"
+import { LogInIcon, MailIcon, ShieldIcon, UserRoundIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
-import { Switch } from "@/components/ui/switch"
-import { useLocalStorageString } from "@/hooks/use-local-storage"
 import { cn } from "@/lib/utils"
 
 type UserInfo = {
@@ -22,13 +17,6 @@ type UserInfo = {
   emailVerified?: boolean
 }
 
-function getLoginKeys(upstreamId: string) {
-  return {
-    username: `console:login:username:${upstreamId}`,
-    password: `console:login:password:${upstreamId}`,
-  }
-}
-
 function tokenStatusClass(status: "idle" | "loading" | "ok" | "error") {
   if (status === "idle") return "border border-sky-500/25 bg-sky-500/15 text-sky-700 dark:text-sky-300"
   if (status === "loading") return "border border-sky-500/25 bg-sky-500/15 text-sky-700 dark:text-sky-300"
@@ -37,209 +25,79 @@ function tokenStatusClass(status: "idle" | "loading" | "ok" | "error") {
 }
 
 export function AuthCard({
-  token,
-  onTokenChange,
-  persistToken,
-  onPersistTokenChange,
   status,
   loginLoading,
   onLogin,
-  onLoginWithDefault,
   user,
-  upstreamId,
-  loginLabel,
 }: {
-  token: string
-  onTokenChange: (v: string) => void
-  persistToken: boolean
-  onPersistTokenChange: (v: boolean) => void
   status: "idle" | "loading" | "ok" | "error"
   loginLoading: boolean
-  onLogin: (payload: { username: string; password: string }) => void
-  onLoginWithDefault: () => void
+  onLogin: () => void
   user: UserInfo | null
-  upstreamId: string
-  loginLabel: string
 }) {
-  const [showToken, setShowToken] = React.useState(false)
-
-  const [rememberUsername, setRememberUsername] = React.useState(true)
-  const [rememberPassword, setRememberPassword] = React.useState(false)
-
-  const [savedUsername, setSavedUsername] = useLocalStorageString(getLoginKeys(upstreamId).username, "")
-  const [savedPassword, setSavedPassword] = useLocalStorageString(getLoginKeys(upstreamId).password, "")
-
-  const [usernameDraft, setUsernameDraft] = React.useState("")
-  const [passwordDraft, setPasswordDraft] = React.useState("")
-
-  const username = rememberUsername ? savedUsername : usernameDraft
-  const password = rememberPassword ? savedPassword : passwordDraft
-
-  React.useEffect(() => {
-    try {
-      if (rememberUsername) setSavedUsername(username)
-      else setSavedUsername("")
-
-      if (rememberPassword) setSavedPassword(password)
-      else setSavedPassword("")
-    } catch {}
-  }, [password, rememberPassword, rememberUsername, setSavedPassword, setSavedUsername, username])
-
   return (
     <Card className="bg-card/60 backdrop-blur supports-[backdrop-filter]:bg-card/50">
-      <CardHeader className="flex flex-col gap-1">
+      <CardHeader className="flex flex-row items-center justify-between gap-3 pb-2">
         <CardTitle className="flex items-center gap-2 text-base">
           <ShieldIcon data-icon="inline-start" />
           认证
         </CardTitle>
-        <CardDescription>先登录写入 Token；也支持直接粘贴 Token。</CardDescription>
+        <Badge variant="secondary" className={cn("shrink-0 font-normal", tokenStatusClass(status))}>
+          {status === "idle" && "就绪"}
+          {status === "loading" && "请求中"}
+          {status === "ok" && "已连接"}
+          {status === "error" && "失败"}
+        </Badge>
       </CardHeader>
 
-      <CardContent className="flex flex-col gap-4">
-        <div className="flex flex-col gap-4">
-          <div className="text-xs text-muted-foreground">方式一：登录获取 Token</div>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="username">{loginLabel}</Label>
-              <Input
-                id="username"
-                value={username}
-                onChange={(e) => {
-                  const v = e.target.value
-                  if (rememberUsername) setSavedUsername(v)
-                  else setUsernameDraft(v)
-                }}
-                autoComplete="username"
-                placeholder="name@example.com"
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="password">密码</Label>
-              <Input
-                id="password"
-                value={password}
-                onChange={(e) => {
-                  const v = e.target.value
-                  if (rememberPassword) setSavedPassword(v)
-                  else setPasswordDraft(v)
-                }}
-                type="password"
-                autoComplete="current-password"
-                placeholder="••••••••"
-              />
-            </div>
+      <CardContent className="flex flex-col gap-2.5 pt-0">
+        <div className="flex flex-col gap-2 rounded-xl border border-border/60 bg-muted/15 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-xs text-muted-foreground">从环境变量读取凭据并刷新会话</div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={onLogin} disabled={loginLoading} className="w-full sm:w-auto">
+              <LogInIcon data-icon="inline-start" />
+              一键登录并写入 Token
+            </Button>
           </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex flex-wrap items-center gap-6">
-              <div className="flex items-center gap-3">
-                <Switch
-                  checked={rememberUsername}
-                  onCheckedChange={(v) => {
-                    setRememberUsername(v)
-                    if (v) {
-                      setSavedUsername(usernameDraft)
-                      setUsernameDraft("")
-                    } else {
-                      setUsernameDraft(savedUsername)
-                      setSavedUsername("")
-                    }
-                  }}
-                  id="remember-username"
-                />
-                <Label htmlFor="remember-username">记住账号</Label>
-              </div>
-              <div className="flex items-center gap-3">
-                <Switch
-                  checked={rememberPassword}
-                  onCheckedChange={(v) => {
-                    if (v) toast.message("已开启记住密码（仅本机 localStorage）")
-                    setRememberPassword(v)
-                    if (v) {
-                      setSavedPassword(passwordDraft)
-                      setPasswordDraft("")
-                    } else {
-                      setPasswordDraft(savedPassword)
-                      setSavedPassword("")
-                    }
-                  }}
-                  id="remember-password"
-                />
-                <Label htmlFor="remember-password">记住密码</Label>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Button variant="secondary" onClick={onLoginWithDefault} disabled={loginLoading}>
-                一键登录
-              </Button>
-              <Button
-                onClick={() => onLogin({ username, password })}
-                disabled={loginLoading || !username.trim() || !password}
-              >
-                <LogInIcon data-icon="inline-start" />
-                登录并写入 Token
-              </Button>
-            </div>
-          </div>
-
-          {user && (
-            <>
-              <Separator />
-              <div className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <MailIcon data-icon="inline-start" />
-                  <span className="truncate">{user.email ?? "—"}</span>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="truncate">{user.displayName ?? "—"}</span>
-                  <span className="font-mono text-xs text-muted-foreground">{user.role ?? "—"}</span>
-                </div>
-              </div>
-            </>
-          )}
         </div>
 
-        <Separator />
-
-        <div className="flex flex-col gap-4">
-          <div className="text-xs text-muted-foreground">方式二：直接填写 Token</div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="token">Authorization Bearer Token</Label>
-            <div className="flex items-center gap-2">
-              <Input
-                id="token"
-                value={token}
-                onChange={(e) => onTokenChange(e.target.value)}
-                type={showToken ? "text" : "password"}
-                placeholder="粘贴 token（不会自动附加 User-Agent）"
-                spellCheck={false}
-                autoComplete="off"
-                className="font-mono"
-              />
-              <Button type="button" variant="outline" onClick={() => setShowToken((v) => !v)}>
-                {showToken ? <EyeOffIcon data-icon="inline-start" /> : <EyeIcon data-icon="inline-start" />}
-                {showToken ? "隐藏" : "显示"}
-              </Button>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <Switch checked={persistToken} onCheckedChange={onPersistTokenChange} id="persist" />
-              <Label htmlFor="persist">仅本机保存（localStorage）</Label>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <KeyRoundIcon data-icon="inline-start" />
-              <span>状态：</span>
-              <Badge variant="secondary" className={cn("font-normal", tokenStatusClass(status))}>
-                {status === "idle" && "就绪"}
-                {status === "loading" && "请求中"}
-                {status === "ok" && "已连接"}
-                {status === "error" && "失败"}
+        <div className="flex flex-col gap-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xs font-medium tracking-wide text-muted-foreground">当前账号</div>
+            {user?.role && (
+              <Badge variant="outline" className="font-mono text-[11px] text-muted-foreground">
+                {user.role}
               </Badge>
-            </div>
+            )}
           </div>
+
+          {user ? (
+            <div className="flex flex-col gap-2 rounded-lg border border-border/60 bg-background/45 px-3 py-2.5 md:flex-row md:items-center md:justify-between">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <div className="rounded-md bg-muted/70 p-1.5 text-muted-foreground">
+                  <UserRoundIcon className="size-4" />
+                </div>
+                <div className="min-w-0 flex items-center gap-2 text-sm">
+                  <span className="shrink-0 text-xs text-muted-foreground">显示名</span>
+                  <span className="truncate font-medium">{user.displayName ?? "未返回"}</span>
+                </div>
+              </div>
+
+              <div className="flex min-w-0 items-center gap-2.5 md:max-w-[56%]">
+                <div className="rounded-md bg-muted/70 p-1.5 text-muted-foreground">
+                  <MailIcon className="size-4" />
+                </div>
+                <div className="min-w-0 flex items-center gap-2 text-sm">
+                  <span className="shrink-0 text-xs text-muted-foreground">用户名</span>
+                  <span className="truncate font-medium">{user.email ?? "未返回"}</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-border/70 bg-muted/10 px-3 py-3 text-sm text-muted-foreground">
+              登录后会在这里显示当前上游账号信息。
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>
