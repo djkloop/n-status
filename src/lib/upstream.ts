@@ -10,42 +10,6 @@ export type ApiErrorPayload = {
   }
 }
 
-export type UpstreamType = "router" | "findcg"
-
-export interface UpstreamApiConfig {
-  loginPath: string
-  groupsPath: string
-  apiKeysPath: string
-  serviceHealthPath?: string
-  accessTokenField: string
-  dataField: string
-  listField: string
-  totalField: string
-}
-
-export const UPSTREAM_CONFIGS: Record<UpstreamType, UpstreamApiConfig> = {
-  router: {
-    loginPath: "/api/auth/login",
-    groupsPath: "/api/user/api-keys/groups",
-    apiKeysPath: "/api/user/api-keys/paged",
-    serviceHealthPath: "/api/user/service-health",
-    accessTokenField: "accessToken",
-    dataField: "",
-    listField: "data",
-    totalField: "total",
-  },
-  findcg: {
-    loginPath: "/api/v1/auth/login",
-    groupsPath: "/api/v1/groups/available",
-    apiKeysPath: "/api/v1/keys",
-    serviceHealthPath: "/api/v1/availability/status",
-    accessTokenField: "access_token",
-    dataField: "data",
-    listField: "items",
-    totalField: "total",
-  },
-}
-
 export const DEFAULT_UPSTREAM_BASE = "https://ai.router.team"
 const DEFAULT_TIMEOUT_MS = 12_000
 const MIN_TIMEOUT_MS = 1_000
@@ -85,7 +49,6 @@ function getTimeoutMs(req: Request) {
 
 export function validateUpstreamBase(base: string) {
   try {
-    // 移除末尾的斜杠，避免双斜杠问题
     const cleanBase = base.replace(/\/$/, "")
     const url = new URL(cleanBase)
     if (url.protocol !== "https:") return null
@@ -122,7 +85,9 @@ async function safeReadJson(res: Response) {
   }
 }
 
-export async function proxyUpstreamAuthedJson(req: Request, url: string) {
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"
+
+export async function proxyUpstreamAuthedJson(req: Request, url: string, extraHeaders?: Record<string, string>) {
   const token = getBearerToken(req)
   if (!token) {
     return NextResponse.json(
@@ -136,15 +101,13 @@ export async function proxyUpstreamAuthedJson(req: Request, url: string) {
   const timeout = setTimeout(() => ctrl.abort(), getTimeoutMs(req))
 
   try {
-    const isFindcg = url.includes("findcg")
-    
     const upstreamRes = await fetch(url, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: "*/*",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0",
-        ...(isFindcg ? { "Host": "www.findcg.com" } : {}),
+        "User-Agent": UA,
+        ...(extraHeaders ?? {}),
       },
       cache: "no-store",
       signal: ctrl.signal,
@@ -191,7 +154,7 @@ export async function proxyUpstreamAuthedJson(req: Request, url: string) {
   }
 }
 
-export async function proxyUpstreamJson(req: Request, url: string) {
+export async function proxyUpstreamJson(req: Request, url: string, extraHeaders?: Record<string, string>) {
   const startedAt = Date.now()
   const ctrl = new AbortController()
   const timeout = setTimeout(() => ctrl.abort(), getTimeoutMs(req))
@@ -208,21 +171,14 @@ export async function proxyUpstreamJson(req: Request, url: string) {
       }
     }
 
-    const isFindcg = url.includes("findcg")
-    
     const headers: Record<string, string> = {
       Accept: "*/*",
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0",
+      "User-Agent": UA,
       "Connection": "keep-alive",
       ...(jsonBody ? { "content-type": "application/json" } : {}),
-      ...(isFindcg ? { "Host": "www.findcg.com" } : {}),
+      ...(extraHeaders ?? {}),
     }
-    
-    console.log(`[proxyUpstreamJson] Request URL: ${url}`)
-    console.log(`[proxyUpstreamJson] Request Method: ${method}`)
-    console.log(`[proxyUpstreamJson] Request Headers:`, JSON.stringify(headers, null, 2))
-    console.log(`[proxyUpstreamJson] Request Body:`, jsonBody ? JSON.stringify(jsonBody, null, 2) : "null")
-    
+
     const upstreamRes = await fetch(url, {
       method,
       headers,

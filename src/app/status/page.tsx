@@ -23,10 +23,7 @@ const UPSTREAMS_STORAGE_KEY = "console:upstreams"
 const ACTIVE_UPSTREAM_STORAGE_KEY = "console:activeUpstreamId"
 const TOKEN_STORAGE_KEY_PREFIX = "console:token:"
 
-const DEFAULT_UPSTREAMS: Upstream[] = [
-  { id: "router", name: "ai.router.team", baseUrl: "https://ai.router.team" },
-  { id: "findcg", name: "findcg.com", baseUrl: "https://www.findcg.com" },
-]
+import { getDefaultUpstreams } from "@/providers"
 
 const STATUS_ENABLED_KEY_PREFIX = "status:enabled:"
 const STATUS_INTERVAL_KEY = "status:intervalMs"
@@ -324,7 +321,7 @@ function isServiceHealthPayload(value: unknown): value is ServiceHealthPayload {
 export default function StatusPage() {
   const [upstreams, setUpstreams] = useLocalStorageJson<Upstream[]>(
     UPSTREAMS_STORAGE_KEY,
-    DEFAULT_UPSTREAMS,
+    getDefaultUpstreams(),
     isUpstreamArray
   )
 

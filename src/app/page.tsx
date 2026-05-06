@@ -7,37 +7,28 @@ import { ApiKeysCard } from "@/components/console/api-keys-card"
 import { AuthCard } from "@/components/console/auth-card"
 import { GroupsCard } from "@/components/console/groups-card"
 import { StatusCard } from "@/components/console/status-card"
-import { UpstreamManager, type Upstream } from "@/components/console/upstream-manager"
+import { UpstreamTabs, type UpstreamTab } from "@/components/console/upstream-tabs"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import { extractList } from "@/lib/extract"
+import { getDefaultUpstreams, getProviderByBaseUrl } from "@/providers"
+import type { UserInfo } from "@/providers"
+import { loadCache, saveCache, deleteCache, type CachedData } from "@/lib/idb"
 import { useLocalStorageJson, useLocalStorageString } from "@/hooks/use-local-storage"
 
 const UPSTREAMS_STORAGE_KEY = "console:upstreams"
 const ACTIVE_UPSTREAM_STORAGE_KEY = "console:activeUpstreamId"
-const TOKEN_STORAGE_KEY_PREFIX = "console:token:"
-
-const DEFAULT_UPSTREAMS: Upstream[] = [
-  { id: "router", name: "ai.router.team", baseUrl: "https://ai.router.team" },
-  { id: "findcg", name: "findcg.com", baseUrl: "https://www.findcg.com" },
-]
-
-type UserInfo = {
-  id?: number
-  email?: string
-  displayName?: string
-  role?: string
-  emailVerified?: boolean
-}
+const STALE_THRESHOLD_MS = 5 * 60_000
 
 type ConsoleStatus = "idle" | "loading" | "ok" | "error"
 
-function getTokenKey(upstreamId: string) {
-  return `${TOKEN_STORAGE_KEY_PREFIX}${upstreamId}`
+type UpstreamConfig = {
+  id: string
+  name: string
+  baseUrl: string
 }
 
-function isUpstreamArray(value: unknown): value is Upstream[] {
+function isUpstreamArray(value: unknown): value is UpstreamConfig[] {
   if (!Array.isArray(value)) return false
   for (const item of value) {
     if (!item || typeof item !== "object") return false
@@ -47,20 +38,15 @@ function isUpstreamArray(value: unknown): value is Upstream[] {
   return true
 }
 
-function migrateUpstreams(upstreams: Upstream[]): Upstream[] {
+function migrateUpstreams(upstreams: UpstreamConfig[]): UpstreamConfig[] {
+  const defaults = getDefaultUpstreams()
   return upstreams.map(u => {
-    if (u.id === "findcg") {
-      // 清理 baseUrl，移除末尾斜杠和多余的 /api
-      let newBase = u.baseUrl.replace(/\/$/, "").replace(/\/api$/, "")
-      if (!newBase) newBase = "https://www.findcg.com"
-      return { ...u, baseUrl: newBase }
-    }
-    return u
+    const provider = getProviderByBaseUrl(u.baseUrl)
+    const defaultUpstream = defaults.find(d => d.id === u.id)
+    let baseUrl = u.baseUrl.replace(/\/$/, "").replace(/\/api$/, "")
+    if (!baseUrl) baseUrl = provider.defaultBaseUrl
+    return { ...u, baseUrl, name: defaultUpstream?.name ?? provider.name }
   })
-}
-
-function getDefaultUpstreams(): Upstream[] {
-  return DEFAULT_UPSTREAMS
 }
 
 async function readJsonSafely(res: Response) {
@@ -73,101 +59,78 @@ async function readJsonSafely(res: Response) {
   }
 }
 
-function getErrorMessage(payload: unknown) {
-  if (!payload || typeof payload !== "object") return null
-  const v = payload as Record<string, unknown>
-  
-  if (typeof v.message === "string") return v.message
-  
-  const code = v.code as number | undefined
-  if (code !== undefined && code !== 0 && v.message && typeof v.message === "string") {
-    return v.message
-  }
-  
-  if (v.data && typeof v.data === "object") {
-    const d = v.data as Record<string, unknown>
-    if (typeof d.message === "string") return d.message
-  }
-  
-  return null
+type UpstreamState = {
+  token: string
+  user: UserInfo | null
+  groups: unknown[] | null
+  apiRaw: unknown | null
+  apiItems: unknown[] | null
+  apiElapsedMs: number | null
+  health: unknown | null
+  healthElapsedMs: number | null
+  healthError: string | null
+  groupsFetchedAt: number | null
+  apiFetchedAt: number | null
+  healthFetchedAt: number | null
 }
 
-function getAccessToken(payload: unknown) {
-  if (!payload || typeof payload !== "object") return null
-  const v = payload as Record<string, unknown>
-  
-  const code = v.code as number | undefined
-  if (code === 0 && v.data && typeof v.data === "object") {
-    const d = v.data as Record<string, unknown>
-    if (typeof d.access_token === "string") return d.access_token
-    if (typeof d.accessToken === "string") return d.accessToken
-    return null
-  }
-  
-  if (typeof v.accessToken === "string") return v.accessToken
-  if (typeof v.access_token === "string") return v.access_token
-  return null
-}
-
-function getUserInfo(payload: unknown): UserInfo | null {
-  if (!payload || typeof payload !== "object") return null
-  const v = payload as Record<string, unknown>
-  
-  let userObj: Record<string, unknown> | null = null
-  
-  const code = v.code as number | undefined
-  if (code === 0 && v.data && typeof v.data === "object") {
-    const d = v.data as Record<string, unknown>
-    if (d.user && typeof d.user === "object") {
-      userObj = d.user as Record<string, unknown>
-    }
-  } else if (v.user && typeof v.user === "object") {
-    userObj = v.user as Record<string, unknown>
-  }
-  
-  if (!userObj) return null
-  
+function emptyState(): UpstreamState {
   return {
-    id: typeof userObj.id === "number" ? userObj.id : undefined,
-    email: typeof userObj.email === "string" ? userObj.email : undefined,
-    displayName: (typeof userObj.displayName === "string" ? userObj.displayName : undefined) || 
-                 (typeof userObj.username === "string" && userObj.username ? userObj.username : undefined),
-    role: typeof userObj.role === "string" ? userObj.role : undefined,
-    emailVerified: typeof userObj.emailVerified === "boolean" ? userObj.emailVerified : undefined,
+    token: "",
+    user: null,
+    groups: null,
+    apiRaw: null,
+    apiItems: null,
+    apiElapsedMs: null,
+    health: null,
+    healthElapsedMs: null,
+    healthError: null,
+    groupsFetchedAt: null,
+    apiFetchedAt: null,
+    healthFetchedAt: null,
   }
 }
 
-async function callAuthedApi(token: string, upstreamBaseUrl: string, path: string) {
-  const res = await fetch(path, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${token}`, "x-upstream-base": upstreamBaseUrl },
-    cache: "no-store",
-  })
-
-  const elapsed = Number(res.headers.get("x-upstream-elapsed-ms") ?? "")
-  const payload = await readJsonSafely(res)
-
-  if (!res.ok) {
-    throw Object.assign(new Error(getErrorMessage(payload) ?? `HTTP ${res.status}`), {
-      status: res.status,
-      payload,
-    })
-  }
-
+function stateFromCache(c: CachedData): UpstreamState {
   return {
-    payload,
-    elapsedMs: Number.isFinite(elapsed) ? elapsed : null,
+    token: c.token ?? "",
+    user: (c.user as UserInfo | null) ?? null,
+    groups: (c.groups as unknown[] | null) ?? null,
+    apiRaw: c.apiRaw ?? null,
+    apiItems: (c.apiItems as unknown[] | null) ?? null,
+    apiElapsedMs: null,
+    health: c.health ?? null,
+    healthElapsedMs: null,
+    healthError: c.healthError ?? null,
+    groupsFetchedAt: c.groupsFetchedAt ?? null,
+    apiFetchedAt: c.apiFetchedAt ?? null,
+    healthFetchedAt: c.healthFetchedAt ?? null,
+  }
+}
+
+function cacheFromState(id: string, s: UpstreamState): CachedData {
+  return {
+    id,
+    token: s.token,
+    user: s.user,
+    groups: s.groups,
+    apiRaw: s.apiRaw,
+    apiItems: s.apiItems,
+    health: s.health,
+    healthError: s.healthError,
+    groupsFetchedAt: s.groupsFetchedAt,
+    apiFetchedAt: s.apiFetchedAt,
+    healthFetchedAt: s.healthFetchedAt,
   }
 }
 
 export default function Home() {
-  const [rawUpstreams, setUpstreams] = useLocalStorageJson<Upstream[]>(
+  const [rawUpstreams, setUpstreams] = useLocalStorageJson<UpstreamConfig[]>(
     UPSTREAMS_STORAGE_KEY,
     getDefaultUpstreams(),
     isUpstreamArray
   )
-  
-  // 迁移旧配置
+
   const upstreams = React.useMemo(() => migrateUpstreams(rawUpstreams), [rawUpstreams])
 
   const [activeUpstreamId, setActiveUpstreamId] = useLocalStorageString(
@@ -175,18 +138,27 @@ export default function Home() {
     upstreams[0]?.id ?? "router"
   )
 
-  const [storedToken, setStoredToken] = useLocalStorageString(getTokenKey(activeUpstreamId), "")
-  const [tokenDraft, setTokenDraft] = React.useState("")
-  const [persistToken, setPersistToken] = React.useState(true)
+  const statesRef = React.useRef<Map<string, UpstreamState>>(new Map())
+  const getUpstreamState = React.useCallback((id: string) => {
+    let s = statesRef.current.get(id)
+    if (!s) {
+      s = emptyState()
+      statesRef.current.set(id, s)
+    }
+    return s
+  }, [])
+
   const [status, setStatus] = React.useState<ConsoleStatus>("idle")
   const [lastElapsedMs, setLastElapsedMs] = React.useState<number | null>(null)
 
-  const token = persistToken ? storedToken : tokenDraft
+  const [token, setToken] = React.useState("")
+  const [user, setUser] = React.useState<UserInfo | null>(null)
 
   const [groups, setGroups] = React.useState<unknown[] | null>(null)
   const [groupsLoading, setGroupsLoading] = React.useState(false)
   const [groupFilter, setGroupFilter] = React.useState("")
   const [selectedGroupId, setSelectedGroupId] = React.useState<string | null>(null)
+  const [groupsFetchedAt, setGroupsFetchedAt] = React.useState<number | null>(null)
 
   const [apiRaw, setApiRaw] = React.useState<unknown | null>(null)
   const [apiItems, setApiItems] = React.useState<unknown[] | null>(null)
@@ -196,22 +168,77 @@ export default function Home() {
   const [size, setSize] = React.useState(10)
   const [apiElapsedMs, setApiElapsedMs] = React.useState<number | null>(null)
   const [selectedApiKeyId, setSelectedApiKeyId] = React.useState<string | null>(null)
+  const [apiFetchedAt, setApiFetchedAt] = React.useState<number | null>(null)
 
   const [health, setHealth] = React.useState<unknown | null>(null)
   const [healthLoading, setHealthLoading] = React.useState(false)
   const [healthElapsedMs, setHealthElapsedMs] = React.useState<number | null>(null)
   const [healthError, setHealthError] = React.useState<string | null>(null)
   const [healthExpanded, setHealthExpanded] = React.useState(false)
+  const [healthFetchedAt, setHealthFetchedAt] = React.useState<number | null>(null)
 
   const [loginLoading, setLoginLoading] = React.useState(false)
-  const [user, setUser] = React.useState<UserInfo | null>(null)
+  const [refreshingId, setRefreshingId] = React.useState<string | null>(null)
 
   const activeUpstream = upstreams.find((u) => u.id === activeUpstreamId) ?? upstreams[0]
+  const activeProvider = React.useMemo(() => getProviderByBaseUrl(activeUpstream.baseUrl), [activeUpstream.baseUrl])
+
   const requestQueueRef = React.useRef<Promise<void>>(Promise.resolve())
   const enqueueRequest = React.useCallback((fn: () => Promise<void>) => {
     const run = requestQueueRef.current.then(fn, fn)
     requestQueueRef.current = run.catch(() => undefined)
     return run
+  }, [])
+
+  const saveCurrentState = React.useCallback(() => {
+    const s: UpstreamState = {
+      token,
+      user,
+      groups,
+      apiRaw,
+      apiItems,
+      apiElapsedMs,
+      health,
+      healthElapsedMs,
+      healthError,
+      groupsFetchedAt,
+      apiFetchedAt,
+      healthFetchedAt,
+    }
+    statesRef.current.set(activeUpstreamId, s)
+    saveCache(cacheFromState(activeUpstreamId, s))
+  }, [activeUpstreamId, token, user, groups, apiRaw, apiItems, apiElapsedMs, health, healthElapsedMs, healthError, groupsFetchedAt, apiFetchedAt, healthFetchedAt])
+
+  const loadStateToUI = React.useCallback((s: UpstreamState) => {
+    setToken(s.token)
+    setUser(s.user)
+    setGroups(s.groups)
+    setApiRaw(s.apiRaw)
+    setApiItems(s.apiItems)
+    setApiElapsedMs(s.apiElapsedMs)
+    setHealth(s.health)
+    setHealthElapsedMs(s.healthElapsedMs)
+    setHealthError(s.healthError)
+    setGroupsFetchedAt(s.groupsFetchedAt)
+    setApiFetchedAt(s.apiFetchedAt)
+    setHealthFetchedAt(s.healthFetchedAt)
+  }, [])
+
+  React.useEffect(() => {
+    for (const u of upstreams) {
+      loadCache(u.id).then((cached) => {
+        if (cached) {
+          const s = stateFromCache(cached)
+          statesRef.current.set(u.id, s)
+          if (u.id === activeUpstreamId) {
+            loadStateToUI(s)
+            if (s.token && s.groupsFetchedAt) {
+              setStatus("ok")
+            }
+          }
+        }
+      })
+    }
   }, [])
 
   const onCopy = React.useCallback(async (text: string) => {
@@ -223,71 +250,89 @@ export default function Home() {
     }
   }, [])
 
-  const fetchGroups = React.useCallback(async () => {
+  const fetchGroups = React.useCallback(async (silent = false) => {
     return enqueueRequest(async () => {
       if (!token) {
-        toast.error("请先输入 Token")
+        if (!silent) toast.error("请先输入 Token")
         return
       }
-      setStatus("loading")
+      if (!silent) setStatus("loading")
       setGroupsLoading(true)
       try {
-        const { payload, elapsedMs } = await callAuthedApi(
-          token,
-          activeUpstream.baseUrl,
-          "/api/upstream/groups"
-        )
-        setGroups(extractList(payload))
-        if (elapsedMs !== null) setLastElapsedMs(elapsedMs)
-        setStatus("ok")
-        toast.success("分组已更新")
+        const res = await fetch("/api/upstream/groups", {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}`, "x-upstream-base": activeUpstream.baseUrl },
+          cache: "no-store",
+        })
+        const elapsed = Number(res.headers.get("x-upstream-elapsed-ms") ?? "")
+        const payload = await readJsonSafely(res)
+        if (!res.ok) throw new Error(activeProvider.extractErrorMessage(payload) ?? `HTTP ${res.status}`)
+
+        const list = activeProvider.extractList(payload)
+        const now = Date.now()
+        setGroups(list)
+        setGroupsFetchedAt(now)
+        if (Number.isFinite(elapsed)) setLastElapsedMs(elapsed)
+        if (!silent) setStatus("ok")
+        if (!silent) toast.success("分组已更新")
       } catch (e) {
-        setStatus("error")
-        toast.error(e instanceof Error ? e.message : "请求失败")
+        if (!silent) {
+          setStatus("error")
+          toast.error(e instanceof Error ? e.message : "请求失败")
+        }
       } finally {
         setGroupsLoading(false)
       }
     })
-  }, [activeUpstream.baseUrl, enqueueRequest, token])
+  }, [activeUpstream.baseUrl, activeProvider, enqueueRequest, token])
 
-  const fetchApiKeys = React.useCallback(async () => {
+  const fetchApiKeys = React.useCallback(async (silent = false) => {
     return enqueueRequest(async () => {
       if (!token) {
-        toast.error("请先输入 Token")
+        if (!silent) toast.error("请先输入 Token")
         return
       }
-      setStatus("loading")
+      if (!silent) setStatus("loading")
       setApiLoading(true)
       try {
-        const { payload, elapsedMs } = await callAuthedApi(
-          token,
-          activeUpstream.baseUrl,
-          `/api/upstream/api-keys/paged?page=${page}&size=${size}`
-        )
+        const res = await fetch(`/api/upstream/api-keys/paged?page=${page}&size=${size}`, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}`, "x-upstream-base": activeUpstream.baseUrl },
+          cache: "no-store",
+        })
+        const elapsed = Number(res.headers.get("x-upstream-elapsed-ms") ?? "")
+        const payload = await readJsonSafely(res)
+        if (!res.ok) throw new Error(activeProvider.extractErrorMessage(payload) ?? `HTTP ${res.status}`)
+
+        const list = activeProvider.extractList(payload)
+        const now = Date.now()
         setApiRaw(payload)
-        setApiItems(extractList(payload))
-        if (elapsedMs !== null) {
-          setApiElapsedMs(elapsedMs)
-          setLastElapsedMs(elapsedMs)
+        setApiItems(list)
+        setApiFetchedAt(now)
+        if (Number.isFinite(elapsed)) {
+          setApiElapsedMs(elapsed)
+          setLastElapsedMs(elapsed)
         }
-        setStatus("ok")
-        toast.success("列表已更新")
+        if (!silent) setStatus("ok")
+        if (!silent) toast.success("列表已更新")
       } catch (e) {
-        setStatus("error")
-        toast.error(e instanceof Error ? e.message : "请求失败")
+        if (!silent) {
+          setStatus("error")
+          toast.error(e instanceof Error ? e.message : "请求失败")
+        }
       } finally {
         setApiLoading(false)
       }
     })
-  }, [activeUpstream.baseUrl, enqueueRequest, page, size, token])
+  }, [activeUpstream.baseUrl, activeProvider, enqueueRequest, page, size, token])
 
-  const fetchHealth = React.useCallback(async () => {
+  const fetchHealth = React.useCallback(async (silent = false) => {
     return enqueueRequest(async () => {
       if (!token) {
-        toast.error("请先输入 Token")
+        if (!silent) toast.error("请先输入 Token")
         return
       }
-      setStatus("loading")
+      if (!silent) setStatus("loading")
       setHealthLoading(true)
       try {
         const res = await fetch("/api/upstream/service-health", {
@@ -299,87 +344,114 @@ export default function Home() {
           },
           cache: "no-store",
         })
-
         const elapsed = Number(res.headers.get("x-upstream-elapsed-ms") ?? "")
         const payload = await readJsonSafely(res)
+        if (!res.ok) throw new Error(activeProvider.extractErrorMessage(payload) ?? `HTTP ${res.status}`)
 
-        if (!res.ok) {
-          throw new Error(getErrorMessage(payload) ?? `HTTP ${res.status}`)
-        }
-
+        const now = Date.now()
         setHealth(payload)
         setHealthError(null)
-      setHealthExpanded(true)
-
-        const elapsedMs = Number.isFinite(elapsed) ? elapsed : null
-        if (elapsedMs !== null) {
-          setHealthElapsedMs(elapsedMs)
-          setLastElapsedMs(elapsedMs)
+        setHealthFetchedAt(now)
+        if (!silent) setHealthExpanded(true)
+        if (Number.isFinite(elapsed)) {
+          setHealthElapsedMs(elapsed)
+          setLastElapsedMs(elapsed)
         }
-
-        setStatus("ok")
-        toast.success("状态已更新")
+        if (!silent) setStatus("ok")
+        if (!silent) toast.success("状态已更新")
       } catch (e) {
         const msg = e instanceof Error ? e.message : "请求失败"
         setHealthError(msg)
-        setStatus("error")
-        toast.error(msg)
+        if (!silent) {
+          setStatus("error")
+          toast.error(msg)
+        }
       } finally {
         setHealthLoading(false)
       }
     })
-  }, [activeUpstream.baseUrl, enqueueRequest, token])
+  }, [activeUpstream.baseUrl, activeProvider, enqueueRequest, token])
 
-  const requestAll = React.useCallback(async () => {
-    await fetchGroups()
-    await fetchApiKeys()
-    await fetchHealth()
+  const requestAll = React.useCallback(async (silent = false) => {
+    await Promise.all([fetchGroups(silent), fetchApiKeys(silent), fetchHealth(silent)])
   }, [fetchApiKeys, fetchGroups, fetchHealth])
+
+  const onRefreshTab = React.useCallback(async (tabId: string) => {
+    setRefreshingId(tabId)
+    saveCurrentState()
+    setActiveUpstreamId(tabId)
+    const s = getUpstreamState(tabId)
+    loadStateToUI(s)
+    setSelectedGroupId(null)
+    setSelectedApiKeyId(null)
+    setGroupFilter("")
+    setApiFilter("")
+
+    const targetUpstream = upstreams.find((u) => u.id === tabId) ?? upstreams[0]
+    const targetProvider = getProviderByBaseUrl(targetUpstream.baseUrl)
+
+    if (!s.token) {
+      setStatus("loading")
+      try {
+        const res = await fetch("/api/bootstrap/login", {
+          method: "POST",
+          headers: { "x-upstream-base": targetUpstream.baseUrl },
+          cache: "no-store",
+        })
+        const elapsed = Number(res.headers.get("x-upstream-elapsed-ms") ?? "")
+        const body = await readJsonSafely(res)
+        if (!res.ok) throw new Error(targetProvider.extractErrorMessage(body) ?? `HTTP ${res.status}`)
+        const accessToken = targetProvider.extractAccessToken(body)
+        const userInfo = targetProvider.extractUserInfo(body)
+        if (accessToken) {
+          setToken(accessToken)
+          setUser(userInfo)
+          if (Number.isFinite(elapsed)) setLastElapsedMs(elapsed)
+        }
+        toast.success("登录成功")
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "默认登录失败")
+      }
+    }
+
+    try {
+      await requestAll(false)
+    } finally {
+      setRefreshingId(null)
+    }
+  }, [upstreams, getUpstreamState, loadStateToUI, requestAll, saveCurrentState])
 
   const login = React.useCallback(
     async (payload: { username: string; password: string }) => {
       setStatus("loading")
       setLoginLoading(true)
       try {
-        // 根据上游类型构造登录参数
-        const isFindcg = activeUpstream.baseUrl.includes("findcg")
-        const loginPayload = isFindcg
-          ? { email: payload.username, password: payload.password }
-          : payload
-
-        console.log(`[Login] Upstream: ${activeUpstream.baseUrl}`)
-        console.log(`[Login] Is Findcg: ${isFindcg}`)
-        console.log(`[Login] Payload:`, JSON.stringify(loginPayload, null, 2))
-
+        const loginPayload = activeProvider.transformLoginPayload(payload.username, payload.password)
         const res = await fetch("/api/upstream/auth/login", {
           method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-upstream-base": activeUpstream.baseUrl,
-          },
+          headers: { "content-type": "application/json", "x-upstream-base": activeUpstream.baseUrl },
           body: JSON.stringify(loginPayload),
           cache: "no-store",
         })
-
         const elapsed = Number(res.headers.get("x-upstream-elapsed-ms") ?? "")
         const body = await readJsonSafely(res)
-        if (!res.ok) throw new Error(getErrorMessage(body) ?? `HTTP ${res.status}`)
+        if (!res.ok) throw new Error(activeProvider.extractErrorMessage(body) ?? `HTTP ${res.status}`)
 
-        const accessToken = getAccessToken(body)
-        const userInfo = getUserInfo(body)
-
+        const accessToken = activeProvider.extractAccessToken(body)
+        const userInfo = activeProvider.extractUserInfo(body)
         if (!accessToken) {
           toast.error("未找到 accessToken 字段")
           setStatus("error")
           return
         }
 
+        setToken(accessToken)
         setUser(userInfo)
-        if (persistToken) setStoredToken(accessToken)
-        else setTokenDraft(accessToken)
         if (Number.isFinite(elapsed)) setLastElapsedMs(elapsed)
         setStatus("ok")
         toast.success("登录成功")
+
+        setTimeout(() => requestAll(false), 0)
       } catch (e) {
         setStatus("error")
         toast.error(e instanceof Error ? e.message : "登录失败")
@@ -387,7 +459,7 @@ export default function Home() {
         setLoginLoading(false)
       }
     },
-    [activeUpstream.baseUrl, persistToken, setStoredToken, setTokenDraft]
+    [activeUpstream.baseUrl, activeProvider, requestAll]
   )
 
   const loginWithDefault = React.useCallback(async () => {
@@ -399,33 +471,49 @@ export default function Home() {
         headers: { "x-upstream-base": activeUpstream.baseUrl },
         cache: "no-store",
       })
-
       const elapsed = Number(res.headers.get("x-upstream-elapsed-ms") ?? "")
       const body = await readJsonSafely(res)
-      if (!res.ok) throw new Error(getErrorMessage(body) ?? `HTTP ${res.status}`)
+      if (!res.ok) throw new Error(activeProvider.extractErrorMessage(body) ?? `HTTP ${res.status}`)
 
-      const accessToken = getAccessToken(body)
-      const userInfo = getUserInfo(body)
-
+      const accessToken = activeProvider.extractAccessToken(body)
+      const userInfo = activeProvider.extractUserInfo(body)
       if (!accessToken) {
         toast.error("未找到 accessToken 字段")
         setStatus("error")
         return
       }
 
+      setToken(accessToken)
       setUser(userInfo)
-      if (persistToken) setStoredToken(accessToken)
-      else setTokenDraft(accessToken)
       if (Number.isFinite(elapsed)) setLastElapsedMs(elapsed)
       setStatus("ok")
       toast.success("登录成功")
+
+      setTimeout(() => requestAll(false), 0)
     } catch (e) {
       setStatus("error")
       toast.error(e instanceof Error ? e.message : "登录失败")
     } finally {
       setLoginLoading(false)
     }
-  }, [activeUpstream.baseUrl, persistToken, setStoredToken, setTokenDraft])
+  }, [activeUpstream.baseUrl, activeProvider, requestAll])
+
+  const tabItems = React.useMemo<UpstreamTab[]>(() => {
+    return upstreams.map((u) => {
+      const s = statesRef.current.get(u.id)
+      const hasToken = Boolean(s?.token)
+      const hasData = Boolean(s?.groups || s?.apiItems || s?.health)
+      const lastFetch = Math.max(s?.groupsFetchedAt ?? 0, s?.apiFetchedAt ?? 0, s?.healthFetchedAt ?? 0) || null
+      const isStale = lastFetch ? Date.now() - lastFetch > STALE_THRESHOLD_MS : false
+      return { id: u.id, name: u.name, baseUrl: u.baseUrl, hasToken, hasData, isStale, lastFetchedAt: lastFetch }
+    })
+  }, [upstreams, token, groups, apiItems, health, groupsFetchedAt, apiFetchedAt, healthFetchedAt])
+
+  React.useEffect(() => {
+    if (token && groupsFetchedAt && Date.now() - groupsFetchedAt > STALE_THRESHOLD_MS) {
+      requestAll(true)
+    }
+  }, [activeUpstreamId])
 
   return (
     <div className="relative flex flex-1 flex-col">
@@ -455,8 +543,7 @@ export default function Home() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  setStoredToken("")
-                  setTokenDraft("")
+                  setToken("")
                   setUser(null)
                   setGroups(null)
                   setSelectedGroupId(null)
@@ -467,6 +554,12 @@ export default function Home() {
                   setHealthElapsedMs(null)
                   setHealthError(null)
                   setHealthExpanded(false)
+                  setGroupsFetchedAt(null)
+                  setApiFetchedAt(null)
+                  setHealthFetchedAt(null)
+                  statesRef.current.delete(activeUpstreamId)
+                  deleteCache(activeUpstreamId)
+                  setStatus("idle")
                   toast.success("已清空")
                 }}
                 disabled={status === "loading"}
@@ -478,54 +571,52 @@ export default function Home() {
 
           <Separator />
 
-          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <UpstreamManager
-              upstreams={upstreams}
-              value={activeUpstreamId}
-              onValueChange={(id) => {
-                setActiveUpstreamId(id)
-                setGroups(null)
-                setSelectedGroupId(null)
-                setApiItems(null)
-                setApiRaw(null)
-                setSelectedApiKeyId(null)
-                setHealth(null)
-                setHealthElapsedMs(null)
-                setHealthError(null)
-                setHealthExpanded(false)
-                setTokenDraft("")
-                setUser(null)
-              }}
-              onUpstreamsChange={(newUpstreams) => setUpstreams(migrateUpstreams(newUpstreams))}
-            />
-            <div className="text-xs text-muted-foreground">同域转发：/api/upstream/*（避免浏览器 CORS）</div>
-          </div>
+          <UpstreamTabs
+            tabs={tabItems}
+            activeId={activeUpstreamId}
+            refreshingId={refreshingId}
+            onActiveChange={(id) => {
+              saveCurrentState()
+              setActiveUpstreamId(id)
+              const s = getUpstreamState(id)
+              loadStateToUI(s)
+              setSelectedGroupId(null)
+              setSelectedApiKeyId(null)
+              setGroupFilter("")
+              setApiFilter("")
+            }}
+            onRefresh={onRefreshTab}
+            onAdd={(name, baseUrl) => {
+              const id = name.toLowerCase().replace(/[^a-z0-9]/g, "-")
+              setUpstreams(migrateUpstreams([...upstreams, { id, name, baseUrl }]))
+            }}
+            onRemove={(id) => {
+              if (upstreams.length <= 1) return
+              const next = upstreams.filter((u) => u.id !== id)
+              setUpstreams(migrateUpstreams(next))
+              statesRef.current.delete(id)
+              deleteCache(id)
+              if (id === activeUpstreamId) {
+                const newActive = next[0]?.id ?? ""
+                setActiveUpstreamId(newActive)
+                loadStateToUI(getUpstreamState(newActive))
+              }
+            }}
+          />
         </div>
 
         <AuthCard
           token={token}
-          onTokenChange={(v) => {
-            if (persistToken) setStoredToken(v)
-            else setTokenDraft(v)
-          }}
-          persistToken={persistToken}
-          onPersistTokenChange={(v) => {
-            if (v) {
-              setStoredToken(tokenDraft)
-              setTokenDraft("")
-            } else {
-              setTokenDraft(storedToken)
-              setStoredToken("")
-            }
-            setPersistToken(v)
-          }}
+          onTokenChange={setToken}
+          persistToken={true}
+          onPersistTokenChange={() => {}}
           status={status}
           loginLoading={loginLoading}
           onLogin={login}
           onLoginWithDefault={loginWithDefault}
           user={user}
           upstreamId={activeUpstreamId}
-          upstreamBaseUrl={activeUpstream?.baseUrl ?? ""}
+          loginLabel={activeProvider.loginLabel}
         />
 
         <div className="flex flex-col gap-4">
@@ -533,7 +624,7 @@ export default function Home() {
             <div className="text-xs text-muted-foreground">数据</div>
             <Button
               variant="secondary"
-              onClick={requestAll}
+              onClick={() => requestAll(false)}
               disabled={!token || status === "loading" || groupsLoading || apiLoading || healthLoading}
             >
               全部请求
@@ -550,7 +641,7 @@ export default function Home() {
               selectedId={selectedGroupId}
               onSelect={setSelectedGroupId}
               onCopy={onCopy}
-              onFetch={fetchGroups}
+              onFetch={() => fetchGroups(false)}
               canFetch={Boolean(token)}
             />
             <ApiKeysCard
@@ -567,7 +658,7 @@ export default function Home() {
                 setPage(1)
               }}
               lastElapsedMs={apiElapsedMs}
-              onFetch={fetchApiKeys}
+              onFetch={() => fetchApiKeys(false)}
               selectedId={selectedApiKeyId}
               onSelect={setSelectedApiKeyId}
             />
@@ -578,7 +669,7 @@ export default function Home() {
                 data={health}
                 error={healthError}
                 lastElapsedMs={healthElapsedMs}
-                onFetch={fetchHealth}
+                onFetch={() => fetchHealth(false)}
                 canFetch={Boolean(token)}
                 expanded={healthExpanded}
                 onExpandedChange={setHealthExpanded}

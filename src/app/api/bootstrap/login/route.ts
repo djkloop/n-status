@@ -1,6 +1,22 @@
 import { NextResponse } from "next/server"
 
 import { type ApiErrorPayload, getUpstreamBaseFromRequest } from "@/lib/upstream"
+import { getProviderByBaseUrl } from "@/providers"
+
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0"
+
+function resolveCredentials(provider: { credentialEnvPrefix?: string }) {
+  const prefix = provider.credentialEnvPrefix
+  if (prefix) {
+    const username = process.env[`${prefix}_USERNAME`]
+    const password = process.env[`${prefix}_PASSWORD`]
+    if (username && password) return { username, password }
+  }
+  const fallbackUsername = process.env.DEFAULT_LOGIN_USERNAME
+  const fallbackPassword = process.env.DEFAULT_LOGIN_PASSWORD
+  if (fallbackUsername && fallbackPassword) return { username: fallbackUsername, password: fallbackPassword }
+  return null
+}
 
 async function safeReadJson(res: Response) {
   const text = await res.text()
@@ -16,30 +32,42 @@ export async function POST(req: Request) {
   const base = getUpstreamBaseFromRequest(req)
   if (base instanceof Response) return base
 
-  const username = process.env.DEFAULT_LOGIN_USERNAME
-  const password = process.env.DEFAULT_LOGIN_PASSWORD
+  const provider = getProviderByBaseUrl(base.toString())
+  const creds = resolveCredentials(provider)
 
-  if (!username || !password) {
+  if (!creds) {
+    const prefix = provider.credentialEnvPrefix
+      ? `环境变量 ${provider.credentialEnvPrefix}_USERNAME / ${provider.credentialEnvPrefix}_PASSWORD`
+      : "环境变量 DEFAULT_LOGIN_USERNAME / DEFAULT_LOGIN_PASSWORD"
     return NextResponse.json(
       {
         ok: false,
         status: 500,
-        message: "未配置默认登录凭据（DEFAULT_LOGIN_USERNAME / DEFAULT_LOGIN_PASSWORD）",
+        message: `未配置默认登录凭据（请设置 ${prefix}）`,
       } satisfies ApiErrorPayload,
       { status: 500 }
     )
   }
+
+  const loginPayload = provider.transformLoginPayload(creds.username, creds.password)
+  const url = new URL(provider.paths.login, base)
+  const extraHeaders = provider.getExtraHeaders(url.toString())
 
   const startedAt = Date.now()
   const ctrl = new AbortController()
   const timeout = setTimeout(() => ctrl.abort(), 12_000)
 
   try {
-    const url = new URL("/api/auth/login", base)
     const upstreamRes = await fetch(url.toString(), {
       method: "POST",
-      headers: { "content-type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ username, password }),
+      headers: {
+        Accept: "*/*",
+        "User-Agent": UA,
+        "Connection": "keep-alive",
+        "content-type": "application/json",
+        ...extraHeaders,
+      },
+      body: JSON.stringify(loginPayload),
       cache: "no-store",
       signal: ctrl.signal,
     })
