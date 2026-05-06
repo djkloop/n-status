@@ -15,6 +15,17 @@ function pickSummary(value: unknown) {
   if (!value || typeof value !== "object") return null
   const v = value as Record<string, unknown>
   if (!v.summary || typeof v.summary !== "object") {
+    const data = v.data && typeof v.data === "object" ? v.data as Record<string, unknown> : null
+    if (Array.isArray(data?.items)) {
+      const total = data.items.length
+      const healthy = data.items.filter((g: unknown) => {
+        if (!g || typeof g !== "object") return false
+        const gg = g as Record<string, unknown>
+        return gg.primary_status === "operational"
+      }).length
+      return { total, healthy, abnormal: total - healthy }
+    }
+
     // findcg 格式: 没有 summary，用 groups 计算
     if (Array.isArray(v.groups)) {
       const total = v.groups.length
@@ -91,6 +102,62 @@ function pickRecords(value: unknown): HealthRecord[] {
 function pickGroups(value: unknown): HealthGroupRow[] {
   if (!value || typeof value !== "object") return []
   const v = value as Record<string, unknown>
+  const data = v.data && typeof v.data === "object" ? v.data as Record<string, unknown> : null
+
+  if (Array.isArray(data?.items)) {
+    return data.items
+      .flatMap((item) => {
+        if (!item || typeof item !== "object") return []
+        const g = item as Record<string, unknown>
+        const name = typeof g.name === "string" ? g.name : ""
+        if (!name) return []
+
+        const primaryStatus = typeof g.primary_status === "string" ? g.primary_status : null
+        const records = Array.isArray(g.timeline)
+          ? g.timeline
+              .flatMap((entry) => {
+                if (!entry || typeof entry !== "object") return []
+                const t = entry as Record<string, unknown>
+                const status = typeof t.status === "string" ? t.status : null
+                return [{
+                  fullLabel: typeof g.primary_model === "string" ? g.primary_model : null,
+                  status: status === "operational" ? "ONLINE" : status === "failed" || status === "error" ? "OFFLINE" : "UNKNOWN",
+                  severity: status === "degraded" ? "MEDIUM" : status === "failed" || status === "error" ? "HIGH" : null,
+                  latencyMs: typeof t.latency_ms === "number" ? t.latency_ms : null,
+                  statusCode: null,
+                  model: typeof g.primary_model === "string" ? g.primary_model : null,
+                  message: status,
+                  checkedAt: typeof t.checked_at === "string" ? t.checked_at : null,
+                }]
+              })
+          : []
+
+        const latest = records[records.length - 1] ?? null
+
+        return [{
+          raw: item,
+          id: typeof g.id === "number" ? g.id : null,
+          name,
+          channelName: typeof g.group_name === "string" && g.group_name ? g.group_name : null,
+          channelStatus: null,
+          groupType: typeof g.provider === "string" ? g.provider : null,
+          monitorEnabled: null,
+          healthy: primaryStatus === "operational" ? true : primaryStatus ? false : null,
+          lastCheckStatus: primaryStatus,
+          lastCheckLatencyMs: typeof g.primary_latency_ms === "number" ? g.primary_latency_ms : null,
+          availabilityRate: typeof g.availability_7d === "number" ? g.availability_7d : null,
+          lastCheckedAt: latest?.checkedAt ?? null,
+          currentStatus: primaryStatus === "operational" ? 1 : primaryStatus ? 0 : null,
+          records,
+          layers: [],
+          service: typeof g.primary_model === "string" ? g.primary_model : null,
+          category: null,
+          providerSlug: typeof g.provider === "string" ? g.provider : null,
+          annotations: [],
+        }]
+      })
+  }
+
   if (!Array.isArray(v.groups)) return []
   return v.groups
     .map((item) => {
