@@ -103,12 +103,13 @@ export const routerProvider: UpstreamProvider = {
     const v = response as Record<string, unknown>
     if (!Array.isArray(v.groups)) return []
     return v.groups
-      .map((item) => {
-        if (!item || typeof item !== "object") return null
+      .flatMap((item) => {
+        if (!item || typeof item !== "object") return []
         const g = item as Record<string, unknown>
         const name = typeof g.name === "string" ? g.name : ""
+        if (!name) return []
         const healthy = typeof g.healthy === "boolean" ? g.healthy : null
-        return {
+        return [{
           raw: item,
           id: typeof g.id === "number" ? g.id : null,
           name,
@@ -120,9 +121,8 @@ export const routerProvider: UpstreamProvider = {
           currentStatus: null,
           records: Array.isArray(g.records) ? g.records : [],
           layers: [],
-        }
+        }]
       })
-      .filter((x): x is HealthGroupItem => Boolean(x && x.name))
   },
 
   getExtraHeaders(_url: string): Record<string, string> {

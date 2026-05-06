@@ -144,10 +144,11 @@ export const findcgProvider: UpstreamProvider = {
     const v = response as Record<string, unknown>
     if (!Array.isArray(v.groups)) return []
     return v.groups
-      .map((item) => {
-        if (!item || typeof item !== "object") return null
+      .flatMap((item) => {
+        if (!item || typeof item !== "object") return []
         const g = item as Record<string, unknown>
         const name = typeof g.provider === "string" ? g.provider : ""
+        if (!name) return []
         const currentStatus = typeof g.current_status === "number" ? g.current_status : null
         const healthy = currentStatus === 1 ? true : currentStatus !== null ? false : null
         const layers = Array.isArray(g.layers) ? g.layers : []
@@ -172,7 +173,7 @@ export const findcgProvider: UpstreamProvider = {
           }
         }
 
-        return {
+        return [{
           raw: item,
           id: typeof g.id === "number" ? g.id : null,
           name,
@@ -184,9 +185,8 @@ export const findcgProvider: UpstreamProvider = {
           currentStatus,
           records: [],
           layers,
-        }
+        }]
       })
-      .filter((x): x is HealthGroupItem => Boolean(x && x.name))
   },
 
   getExtraHeaders(url: string): Record<string, string> {

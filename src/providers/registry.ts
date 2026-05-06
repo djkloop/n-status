@@ -12,13 +12,19 @@ export function getProvider(id: string): UpstreamProvider | undefined {
   return providers.get(id)
 }
 
-export function getProviderByBaseUrl(baseUrl: string): UpstreamProvider | undefined {
+export function getProviderByBaseUrl(baseUrl: string): UpstreamProvider {
   for (const provider of providers.values()) {
     if (baseUrl.includes(provider.id) || baseUrl.includes(new URL(provider.defaultBaseUrl).hostname)) {
       return provider
     }
   }
-  return providers.get("router")
+
+  const fallbackProvider = providers.get("router")
+  if (!fallbackProvider) {
+    throw new Error("Router provider is not registered")
+  }
+
+  return fallbackProvider
 }
 
 export function getAllProviders(): UpstreamProvider[] {
