@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { PlusIcon, RefreshCwIcon, XIcon } from "lucide-react"
+import { ExternalLinkIcon, PlusIcon, RefreshCwIcon, XIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -121,6 +121,19 @@ export function UpstreamTabs({
                 >
                   <RefreshCwIcon className={cn("size-2.5", refreshing && "animate-spin")} />
                 </span>
+
+                <a
+                  href={tab.baseUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  className="-mr-0.5 rounded-md p-0.5 opacity-0 transition-all duration-150 hover:bg-accent group-hover:opacity-70 hover:!opacity-100"
+                  aria-label={`打开 ${tab.name}`}
+                  title={`打开 ${tab.baseUrl}`}
+                >
+                  <ExternalLinkIcon className="size-2.5" />
+                </a>
 
                 {!active && tabs.length > 1 && (
                   <span
