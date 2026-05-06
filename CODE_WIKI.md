@@ -114,6 +114,8 @@ src/
 - **环境变量**：
   - `ROUTER_USERNAME` / `ROUTER_PASSWORD` - Router 上游登录凭据
   - `FINDCG_USERNAME` / `FINDCG_PASSWORD` - FindCG 上游登录凭据
+  - `MOAI_USERNAME` / `MOAI_PASSWORD` - Moai 上游登录凭据
+  - `BMAI_USERNAME` / `BMAI_PASSWORD` - Bmai 上游登录凭据
 
 ---
 
@@ -264,6 +266,10 @@ docker-compose up -d
 | `ROUTER_PASSWORD` | Router 登录密码 | - |
 | `FINDCG_USERNAME` | FindCG 登录用户名 | - |
 | `FINDCG_PASSWORD` | FindCG 登录密码 | - |
+| `MOAI_USERNAME` | Moai 登录用户名 | - |
+| `MOAI_PASSWORD` | Moai 登录密码 | - |
+| `BMAI_USERNAME` | Bmai 登录用户名 | - |
+| `BMAI_PASSWORD` | Bmai 登录密码 | - |
 
 ---
 

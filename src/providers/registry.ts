@@ -1,6 +1,8 @@
 import type { UpstreamProvider } from "./types"
 import { routerProvider } from "./router"
 import { findcgProvider } from "./findcg"
+import { moaiProvider } from "./moai"
+import { bmaiProvider } from "./bmai"
 
 const providers: Map<string, UpstreamProvider> = new Map()
 
@@ -41,3 +43,5 @@ export function getDefaultUpstreams() {
 
 registerProvider(routerProvider)
 registerProvider(findcgProvider)
+registerProvider(moaiProvider)
+registerProvider(bmaiProvider)

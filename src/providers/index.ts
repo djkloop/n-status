@@ -1,4 +1,6 @@
 export type { UpstreamProvider, UserInfo, HealthSummary, HealthGroupItem } from "./types"
 export { routerProvider } from "./router"
 export { findcgProvider } from "./findcg"
+export { moaiProvider } from "./moai"
+export { bmaiProvider } from "./bmai"
 export { registerProvider, getProvider, getProviderByBaseUrl, getAllProviders, getDefaultUpstreams } from "./registry"
