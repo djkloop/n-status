@@ -23,7 +23,7 @@ const UPSTREAMS_STORAGE_KEY = "console:upstreams"
 const ACTIVE_UPSTREAM_STORAGE_KEY = "console:activeUpstreamId"
 const TOKEN_STORAGE_KEY_PREFIX = "console:token:"
 
-import { getDefaultUpstreams } from "@/providers"
+import { getDefaultUpstreams, getProviderByBaseUrl } from "@/providers"
 
 const STATUS_ENABLED_KEY_PREFIX = "status:enabled:"
 const STATUS_INTERVAL_KEY = "status:intervalMs"
@@ -310,14 +310,6 @@ function getErrorMessage(payload: unknown) {
   return typeof v.message === "string" ? v.message : null
 }
 
-function isServiceHealthPayload(value: unknown): value is ServiceHealthPayload {
-  if (!value || typeof value !== "object") return false
-  const v = value as Record<string, unknown>
-  if (!v.summary || typeof v.summary !== "object") return false
-  if (!Array.isArray(v.groups)) return false
-  return true
-}
-
 export default function StatusPage() {
   const [upstreams, setUpstreams] = useLocalStorageJson<Upstream[]>(
     UPSTREAMS_STORAGE_KEY,
@@ -331,6 +323,7 @@ export default function StatusPage() {
   )
 
   const activeUpstream = upstreams.find((u) => u.id === activeUpstreamId) ?? upstreams[0]
+  const activeProvider = React.useMemo(() => getProviderByBaseUrl(activeUpstream.baseUrl), [activeUpstream.baseUrl])
   const [token, setToken] = useLocalStorageString(getTokenKey(activeUpstreamId), "")
 
   const [enabledRaw, setEnabledRaw] = useLocalStorageString(getEnabledKey(activeUpstreamId), "0")
@@ -384,18 +377,38 @@ export default function StatusPage() {
         const payload = await readJsonSafely(res)
 
         if (!res.ok) {
-          throw new Error(getErrorMessage(payload) ?? `HTTP ${res.status}`)
+          throw new Error(activeProvider.extractErrorMessage(payload) ?? getErrorMessage(payload) ?? `HTTP ${res.status}`)
         }
 
-        if (!isServiceHealthPayload(payload)) {
-          throw new Error("响应结构不符合预期")
+        const summary = activeProvider.extractHealthSummary(payload)
+        const groups = activeProvider.extractHealthGroups(payload)
+        const mapped: ServiceHealthPayload = {
+          summary: {
+            totalGroups: summary?.total ?? groups.length,
+            healthyGroups: summary?.healthy ?? groups.filter((g) => g.healthy).length,
+            abnormalGroups: summary?.abnormal ?? groups.filter((g) => g.healthy === false).length,
+            slotMinutes: 0,
+            windowMinutes: 0,
+            availabilityWindowDays: 0,
+          },
+          groups: groups.map((g) => ({
+            id: g.id ?? -1,
+            name: g.name,
+            channelName: g.channelName ?? undefined,
+            healthy: g.healthy ?? undefined,
+            lastCheckStatus: null,
+            lastCheckLatencyMs: g.lastCheckLatencyMs ?? undefined,
+            availabilityRate: g.availabilityRate ?? undefined,
+            lastCheckedAt: g.lastCheckedAt ?? undefined,
+            records: (g.records as HealthRecord[] | undefined) ?? [],
+          })),
         }
 
-        setData(payload)
+        setData(mapped)
         const currentSelected = selectedGroupIdRef.current
-        const exists = typeof currentSelected === "number" && payload.groups.some((g) => g.id === currentSelected)
+        const exists = typeof currentSelected === "number" && mapped.groups.some((g) => g.id === currentSelected)
         if (!exists) {
-          const nextSelected = payload.groups.find((g) => !g.healthy)?.id ?? payload.groups[0]?.id ?? null
+          const nextSelected = mapped.groups.find((g) => !g.healthy)?.id ?? mapped.groups[0]?.id ?? null
           setSelectedGroupId(nextSelected)
         }
         setError(null)
@@ -411,7 +424,7 @@ export default function StatusPage() {
         runningRef.current = false
       }
     },
-    [activeUpstream, token]
+    [activeProvider, activeUpstream, token]
   )
 
   React.useEffect(() => {
