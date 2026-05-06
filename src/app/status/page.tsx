@@ -396,7 +396,7 @@ export default function StatusPage() {
             name: g.name,
             channelName: g.channelName ?? undefined,
             healthy: g.healthy ?? undefined,
-            lastCheckStatus: null,
+            lastCheckStatus: undefined,
             lastCheckLatencyMs: g.lastCheckLatencyMs ?? undefined,
             availabilityRate: g.availabilityRate ?? undefined,
             lastCheckedAt: g.lastCheckedAt ?? undefined,
