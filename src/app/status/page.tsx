@@ -191,6 +191,9 @@ function Sparkline({
 
 function getStatusText(v: string | undefined) {
   if (!v) return "-"
+  if (v === "operational") return "健康"
+  if (v === "degraded") return "降级"
+  if (v === "failed" || v === "error") return "失败"
   if (v === "ONLINE") return "在线"
   if (v === "OFFLINE") return "离线"
   if (v === "UNKNOWN") return "未知"
