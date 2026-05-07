@@ -66,7 +66,7 @@ export default function CollectPage() {
       <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
         <div className="absolute -left-48 -top-48 size-[600px] rounded-full bg-[radial-gradient(circle_at_center,oklch(0.83_0.15_85/0.22),transparent_68%)] blur-3xl" />
         <div className="absolute -right-64 top-10 size-[760px] rounded-full bg-[radial-gradient(circle_at_center,oklch(0.76_0.18_260/0.18),transparent_70%)] blur-3xl" />
-        <div className="absolute inset-0 bg-[linear-gradient(to_bottom,transparent,oklch(0.145_0_0/0.9))]" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_bottom,transparent,oklch(1_0_0/0.88))] dark:bg-[linear-gradient(to_bottom,transparent,oklch(0.145_0_0/0.9))]" />
       </div>
 
       <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-6 py-10">

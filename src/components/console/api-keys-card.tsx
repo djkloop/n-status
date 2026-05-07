@@ -69,34 +69,37 @@ export function ApiKeysCard({
 
   return (
     <Card className="bg-card/60 backdrop-blur supports-[backdrop-filter]:bg-card/50 flex flex-col !gap-0 !py-0 h-full">
-      <CardHeader className="flex flex-row items-start justify-between gap-4 shrink-0">
-        <div className="flex flex-col gap-1">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <ListIcon data-icon="inline-start" />
-            API Key 列表
-          </CardTitle>
-          <CardDescription className="flex items-center gap-2">
-            <span>
-              {loading ? "加载中…" : `当前 ${filtered.length} 条${total ? ` / 总 ${total}` : ""}`}
-            </span>
-            {typeof lastElapsedMs === "number" && (
-              <span className="font-mono text-xs text-muted-foreground">
-                {lastElapsedMs}ms
-              </span>
-            )}
-          </CardDescription>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button onClick={onFetch} disabled={loading}>
-            <RotateCwIcon data-icon="inline-start" />
-            查询
-          </Button>
+      <CardHeader className="shrink-0 border-b px-4 py-4">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-1">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ListIcon data-icon="inline-start" />
+                API Key 列表
+              </CardTitle>
+              <CardDescription className="flex flex-wrap items-center gap-2">
+                <span>
+                  {loading ? "加载中…" : `当前 ${filtered.length} 条${total ? ` / 总 ${total}` : ""}`}
+                </span>
+                {typeof lastElapsedMs === "number" && (
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {lastElapsedMs}ms
+                  </span>
+                )}
+              </CardDescription>
+            </div>
+
+            <div className="flex items-center gap-2 sm:shrink-0">
+              <Button onClick={onFetch} disabled={loading}>
+                <RotateCwIcon data-icon="inline-start" />
+                查询
+              </Button>
+            </div>
+          </div>
         </div>
       </CardHeader>
 
-      <Separator />
-
-      <CardContent className="flex flex-col gap-3 p-4 pt-0">
+      <CardContent className="flex flex-col gap-3 p-4 pt-4">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-4 shrink-0">
           <div className="flex flex-col gap-2">
             <Label htmlFor="ak-page">页码</Label>

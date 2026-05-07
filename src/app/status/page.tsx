@@ -489,7 +489,7 @@ export default function StatusPage() {
       <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
         <div className="absolute -left-56 -top-56 size-[640px] rounded-full bg-[radial-gradient(circle_at_center,oklch(0.8_0.16_140/0.22),transparent_68%)] blur-3xl" />
         <div className="absolute -right-60 top-12 size-[700px] rounded-full bg-[radial-gradient(circle_at_center,oklch(0.75_0.18_260/0.18),transparent_70%)] blur-3xl" />
-        <div className="absolute inset-0 bg-[linear-gradient(to_bottom,transparent,oklch(0.145_0_0/0.9))]" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_bottom,transparent,oklch(1_0_0/0.88))] dark:bg-[linear-gradient(to_bottom,transparent,oklch(0.145_0_0/0.9))]" />
       </div>
 
       <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-6 py-10">

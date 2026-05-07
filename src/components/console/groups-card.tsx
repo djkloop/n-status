@@ -8,11 +8,27 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { pickDisplayName, pickId, pickRate, pickSupportedModels, pickPlatform, pickStatus, pickDescription, platformToModel } from "@/lib/extract"
 import { cn } from "@/lib/utils"
+
+type RateSort = "default" | "rate-desc" | "rate-asc"
+
+function toRateNumber(value: unknown) {
+  const rate = pickRate(value)
+  if (!rate) return null
+  const parsed = Number(rate)
+  return Number.isFinite(parsed) ? parsed : null
+}
 
 export function GroupsCard({
   groups,
@@ -38,44 +54,69 @@ export function GroupsCard({
   canFetch: boolean
 }) {
   const list = React.useMemo(() => groups ?? [], [groups])
+  const [sortBy, setSortBy] = React.useState<RateSort>("default")
+
   const filtered = React.useMemo(() => {
     const q = filter.trim().toLowerCase()
-    if (!q) return list
-    return list.filter((g) => {
+    const next = !q ? list : list.filter((g) => {
       const label = pickDisplayName(g).toLowerCase()
       const id = (pickId(g) ?? "").toLowerCase()
       return label.includes(q) || id.includes(q)
     })
-  }, [filter, list])
+
+    if (sortBy === "default") return next
+
+    return [...next].sort((a, b) => {
+      const av = toRateNumber(a)
+      const bv = toRateNumber(b)
+      if (av === null && bv === null) return 0
+      if (av === null) return 1
+      if (bv === null) return -1
+      return sortBy === "rate-desc" ? bv - av : av - bv
+    })
+  }, [filter, list, sortBy])
 
   return (
     <Card className="bg-card/60 backdrop-blur supports-[backdrop-filter]:bg-card/50 flex flex-col !gap-0 !py-0 h-full">
-      <CardHeader className="flex flex-row items-start justify-between gap-4 shrink-0">
-        <div className="flex flex-col gap-1">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <LayersIcon data-icon="inline-start" />
-            分组
-          </CardTitle>
-          <CardDescription>
-            {loading ? "加载中…" : `共 ${filtered.length} 条`}
-          </CardDescription>
-        </div>
-        <div className="flex items-center gap-2">
-          <Input
-            value={filter}
-            onChange={(e) => onFilterChange(e.target.value)}
-            placeholder="过滤分组（名称 / ID）"
-            className="w-56"
-          />
-          <Button onClick={onFetch} disabled={!canFetch || loading} variant="secondary">
-            拉取
-          </Button>
+      <CardHeader className="shrink-0 border-b px-4 py-4">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <LayersIcon data-icon="inline-start" />
+              分组
+            </CardTitle>
+            <CardDescription>
+              {loading ? "加载中…" : `共 ${filtered.length} 条`}
+            </CardDescription>
+          </div>
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Input
+              value={filter}
+              onChange={(e) => onFilterChange(e.target.value)}
+              placeholder="过滤分组（名称 / ID）"
+              className="w-full sm:flex-1"
+            />
+            <div className="flex items-center gap-2 sm:shrink-0">
+              <Select value={sortBy} onValueChange={(v) => setSortBy(v as RateSort)}>
+                <SelectTrigger className="w-full sm:w-[152px]">
+                  <SelectValue placeholder="排序" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default">默认排序</SelectItem>
+                  <SelectItem value="rate-desc">倍率从高到低</SelectItem>
+                  <SelectItem value="rate-asc">倍率从低到高</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button onClick={onFetch} disabled={!canFetch || loading} variant="secondary" className="shrink-0">
+                拉取
+              </Button>
+            </div>
+          </div>
         </div>
       </CardHeader>
 
-      <Separator />
-
-      <CardContent className="flex flex-col gap-3 p-4 pt-0">
+      <CardContent className="flex flex-col gap-3 p-4 pt-4">
         {loading && (
           <div className="flex flex-col gap-2">
             <Skeleton className="h-10 w-full" />
