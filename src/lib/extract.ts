@@ -103,13 +103,38 @@ export function pickRate(value: unknown): string | null {
 }
 
 export function pickPlatform(value: unknown): string | null {
-  if (!value || typeof value !== "object") return null
-  const v = value as Record<string, unknown>
-  const candidates = [v.platform, v.type, v.provider, v.groupType, v.channel]
-  for (const c of candidates) {
-    if (typeof c === "string" && c.trim()) return c.trim()
-  }
-  return null
+if (!value || typeof value !== "object") return null
+const v = value as Record<string, unknown>
+
+const directPlatform = typeof v.platform === "string" && v.platform.trim() ? v.platform.trim() : null
+if (directPlatform) return directPlatform
+
+const textHaystack = [v.description, v.name]
+.filter((x): x is string => typeof x === "string" && x.trim().length >0)
+.join(" ")
+.toLowerCase()
+
+ if (textHaystack) {
+ if (textHaystack.includes("反重力")) return "anthropic"
+ if (textHaystack.includes("cc")) return "anthropic"
+ if (textHaystack.includes("codex")) return "openai"
+ if (textHaystack.includes("gpt")) return "openai"
+ }
+
+ const fallbackCandidates = [v.type, v.provider, v.groupType, v.channel]
+ for (const c of fallbackCandidates) {
+ if (typeof c === "string" && c.trim()) return c.trim()
+ }
+
+ const nestedCandidates = [v.config, v.meta, v.data, v.channelInfo, v.model]
+ for (const c of nestedCandidates) {
+ if (c && typeof c === "object") {
+ const nested = pickPlatform(c)
+ if (nested) return nested
+ }
+ }
+
+return null
 }
 
 const PLATFORM_MODEL_MAP: Record<string, string> = {
