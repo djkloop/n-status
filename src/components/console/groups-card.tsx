@@ -23,7 +23,6 @@ import {
  pickId,
  pickPlatform,
  pickRate,
- pickStatus,
  platformToModel,
 } from "@/lib/extract"
 import { cn } from "@/lib/utils"
@@ -131,7 +130,6 @@ function GroupRow({
  const label = pickDisplayName(group)
  const rate = pickRate(group)
  const platform = pickPlatform(group)
- const status = pickStatus(group)
  const description = pickDescription(group)
  const rateText = rate ?? "1"
 
@@ -159,11 +157,6 @@ function GroupRow({
  {platform && (
  <Badge variant="outline" className="font-mono text-[10px]">
  {platform}
- </Badge>
- )}
- {status && (
- <Badge variant={status === "active" ? "secondary" : "destructive"} className="text-[10px]">
- {status === "active" ? "活跃" : status}
  </Badge>
  )}
  {rate && (
