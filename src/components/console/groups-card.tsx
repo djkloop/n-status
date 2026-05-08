@@ -30,25 +30,7 @@ import { cn } from "@/lib/utils"
 
 type RateSort = "default" | "rate-desc" | "rate-asc"
 
-function toRateNumber(value: unknown) {
- const rate = pickRate(value)
- if (!rate) return null
- const parsed = Number(rate)
- return Number.isFinite(parsed) ? parsed : null
-}
-
-export function GroupsCard({
- groups,
- loading,
- upstreamName,
- filter,
- onFilterChange,
- selectedId,
- onSelect,
- onCopy,
- onFetch,
- canFetch,
-}: {
+type GroupsCardProps = {
  groups: unknown[] | null
  loading: boolean
  upstreamName: string
@@ -59,44 +41,33 @@ export function GroupsCard({
  onCopy: (text: string) => void
  onFetch: () => void
  canFetch: boolean
+}
+
+function toRateNumber(value: unknown) {
+ const rate = pickRate(value)
+ if (!rate) return null
+ const parsed = Number(rate)
+ return Number.isFinite(parsed) ? parsed : null
+}
+
+function GroupsToolbar({
+ filter,
+ loading,
+ canFetch,
+ sortBy,
+ onFilterChange,
+ onFetch,
+ onSortChange,
+}: {
+ filter: string
+ loading: boolean
+ canFetch: boolean
+ sortBy: RateSort
+ onFilterChange: (v: string) => void
+ onFetch: () => void
+ onSortChange: (v: RateSort) => void
 }) {
- const list = React.useMemo(() => groups ?? [], [groups])
- const [sortBy, setSortBy] = React.useState<RateSort>("default")
-
- const filtered = React.useMemo(() => {
- const q = filter.trim().toLowerCase()
- const next = !q
- ? list
- : list.filter((g) => {
- const label = pickDisplayName(g).toLowerCase()
- const id = (pickId(g) ?? "").toLowerCase()
- return label.includes(q) || id.includes(q)
- })
-
- if (sortBy === "default") return next
-
- return [...next].sort((a, b) => {
- const av = toRateNumber(a)
- const bv = toRateNumber(b)
- if (av === null && bv === null) return0
- if (av === null) return1
- if (bv === null) return -1
- return sortBy === "rate-desc" ? bv - av : av - bv
- })
- }, [filter, list, sortBy])
-
  return (
- <Card className="bg-card/60 flex h-full flex-col !gap-0 !py-0 backdrop-blur supports-[backdrop-filter]:bg-card/50">
- <CardHeader className="shrink-0 border-b px-4 py-4">
- <div className="flex flex-col gap-4">
- <div className="flex flex-col gap-1">
- <CardTitle className="flex items-center gap-2 text-base">
- <LayersIcon data-icon="inline-start" />
- 分组
- </CardTitle>
- <CardDescription>{loading ? "加载中…" : `共 ${filtered.length} 条`}</CardDescription>
- </div>
-
  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
  <Input
  value={filter}
@@ -105,7 +76,7 @@ export function GroupsCard({
  className="w-full sm:flex-1"
  />
  <div className="flex items-center gap-2 sm:shrink-0">
- <Select value={sortBy} onValueChange={(v) => setSortBy(v as RateSort)}>
+ <Select value={sortBy} onValueChange={(v) => onSortChange(v as RateSort)}>
  <SelectTrigger className="w-full sm:w-[152px]">
  <SelectValue placeholder="排序" />
  </SelectTrigger>
@@ -120,40 +91,53 @@ export function GroupsCard({
  </Button>
  </div>
  </div>
- </div>
- </CardHeader>
+ )
+}
 
- <CardContent className="flex flex-col gap-3 p-4 pt-4">
- {loading && (
+function EmptyState() {
+ return (
+ <div className="flex items-center justify-center rounded-lg border border-dashed p-8 text-sm text-muted-foreground">
+ 暂无数据。先在顶部点击&quot;拉取分组&quot;。
+ </div>
+ )
+}
+
+function LoadingState() {
+ return (
  <div className="flex flex-col gap-2">
  <Skeleton className="h-10 w-full" />
  <Skeleton className="h-10 w-full" />
  <Skeleton className="h-10 w-full" />
  </div>
- )}
+ )
+}
 
- {!loading && list.length ===0 && (
- <div className="flex items-center justify-center rounded-lg border border-dashed p-8 text-sm text-muted-foreground">
- 暂无数据。先在顶部点击"拉取分组"。
- </div>
- )}
-
- {!loading && list.length >0 && (
- <div className="h-[336px] overflow-y-auto rounded-md">
- <div className="flex flex-col">
- {filtered.map((g, idx) => {
- const id = pickId(g)
- const label = pickDisplayName(g)
- const rate = pickRate(g)
- const platform = pickPlatform(g)
- const status = pickStatus(g)
- const description = pickDescription(g)
+function GroupRow({
+ group,
+ index,
+ active,
+ upstreamName,
+ onSelect,
+ onCopy,
+}: {
+ group: unknown
+ index: number
+ active: boolean
+ upstreamName: string
+ onSelect: (id: string | null) => void
+ onCopy: (text: string) => void
+}) {
+ const id = pickId(group)
+ const label = pickDisplayName(group)
+ const rate = pickRate(group)
+ const platform = pickPlatform(group)
+ const status = pickStatus(group)
+ const description = pickDescription(group)
  const rateText = rate ?? "1"
- const active = id && selectedId === id
 
  return (
  <div
- key={id ?? idx}
+ key={id ?? index}
  onClick={() => onSelect(id)}
  onKeyDown={(e) => {
  if (e.key === "Enter" || e.key === " ") {
@@ -191,6 +175,7 @@ export function GroupsCard({
  </div>
  {description && <div className="truncate text-xs text-muted-foreground">{description}</div>}
  </div>
+
  <Tooltip>
  <TooltipTrigger asChild>
  <Button
@@ -212,13 +197,94 @@ export function GroupsCard({
  </Tooltip>
  </div>
  )
- })}
+}
+
+export function GroupsCard({
+ groups,
+ loading,
+ upstreamName,
+ filter,
+ onFilterChange,
+ selectedId,
+ onSelect,
+ onCopy,
+ onFetch,
+ canFetch,
+}: GroupsCardProps) {
+ const list = React.useMemo(() => groups ?? [], [groups])
+ const [sortBy, setSortBy] = React.useState<RateSort>("default")
+
+ const filtered = React.useMemo(() => {
+ const q = filter.trim().toLowerCase()
+ const next = !q
+ ? list
+ : list.filter((g) => {
+ const label = pickDisplayName(g).toLowerCase()
+ const id = (pickId(g) ?? "").toLowerCase()
+ return label.includes(q) || id.includes(q)
+ })
+
+ if (sortBy === "default") return next
+
+ return [...next].sort((a, b) => {
+ const av = toRateNumber(a)
+ const bv = toRateNumber(b)
+ if (av === null && bv === null) return 0
+ if (av === null) return 1
+ if (bv === null) return -1
+ return sortBy === "rate-desc" ? bv - av : av - bv
+ })
+ }, [filter, list, sortBy])
+
+ return (
+ <Card className="bg-card/60 backdrop-blur supports-[backdrop-filter]:bg-card/50 flex h-full flex-col !gap-0 !py-0">
+ <CardHeader className="shrink-0 border-b px-4 py-4">
+ <div className="flex flex-col gap-4">
+ <div className="flex flex-col gap-1">
+ <CardTitle className="flex items-center gap-2 text-base">
+ <LayersIcon data-icon="inline-start" />
+ 分组
+ </CardTitle>
+ <CardDescription>{loading ? "加载中…" : `共 ${filtered.length} 条`}</CardDescription>
+ </div>
+
+ <GroupsToolbar
+ filter={filter}
+ loading={loading}
+ canFetch={canFetch}
+ sortBy={sortBy}
+ onFilterChange={onFilterChange}
+ onFetch={onFetch}
+ onSortChange={setSortBy}
+ />
+ </div>
+ </CardHeader>
+
+ <CardContent className="flex flex-col gap-3 p-4 pt-4">
+ {loading && <LoadingState />}
+
+ {!loading && list.length ===0 && <EmptyState />}
+
+ {!loading && list.length >0 && (
+ <div className="h-[336px] overflow-y-auto rounded-md">
+ <div className="flex flex-col">
+ {filtered.map((g, idx) => (
+ <GroupRow
+ key={pickId(g) ?? idx}
+ group={g}
+ index={idx}
+ active={Boolean(pickId(g) && selectedId === pickId(g))}
+ upstreamName={upstreamName}
+ onSelect={onSelect}
+ onCopy={onCopy}
+ />
+ ))}
  </div>
  </div>
  )}
 
  {!loading && selectedId && (
- <div className="shrink-0 flex flex-col gap-2">
+ <div className="flex flex-col gap-2 shrink-0">
  <div className="text-xs text-muted-foreground">已选分组原始数据</div>
  <JsonViewer value={list.find((g) => pickId(g) === selectedId)} className="max-h-[220px]" />
  </div>
